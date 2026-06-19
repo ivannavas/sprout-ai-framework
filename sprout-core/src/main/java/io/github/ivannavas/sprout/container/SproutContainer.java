@@ -1,0 +1,308 @@
+package io.github.ivannavas.sprout.container;
+
+import io.github.ivannavas.sprout.config.PropertiesLoader;
+import io.github.ivannavas.sprout.config.PropertyResolver;
+import io.github.ivannavas.sprout.processor.ComponentProcessor;
+import io.github.ivannavas.sprout.scanner.ComponentScanner;
+import io.github.ivannavas.sprout.scanner.ProcessorScanner;
+
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Constructor;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.logging.Logger;
+
+/**
+ * Sprout's IoC container. Scans for components, instantiates them as singletons, performs dependency
+ * injection and property resolution, and runs the per-annotation processors that build agents,
+ * models and other specialised beans. Obtain one via {@link io.github.ivannavas.sprout.SproutApplication}
+ * (or, in a Spring app, the starter) and look beans up with {@link #getSingleton(Class)} /
+ * {@link #getSingleton(String)}.
+ */
+public final class SproutContainer {
+
+    private final Class<?> mainClass;
+    private final Logger logger;
+    private final Map<Class<?>, Object> singletons = new HashMap<>();
+    private final Map<String, Object> singletonsByName = new HashMap<>();
+    private final Map<String, String> configurationProperties = new HashMap<>();
+
+    private final Map<Class<?>, List<ComponentProcessor>> processorsByClass = new HashMap<>();
+    private final Map<String, Class<?>> componentsByBeanName = new HashMap<>();
+    private final Set<Class<?>> underConstruction = new LinkedHashSet<>();
+    private final List<Runnable> readyCallbacks = new ArrayList<>();
+
+    private ExternalBeanResolver externalBeanResolver;
+
+    public SproutContainer(Class<?> mainClass, Logger logger) {
+        this.mainClass = mainClass;
+        this.logger = logger;
+    }
+
+    public void bootstrap() {
+        Map<String, String> loaded = PropertiesLoader.load(mainClass.getClassLoader(), logger);
+        // Properties already present (e.g. seeded by an embedding container such as Spring's
+        // Environment) take precedence over values loaded from sprout.properties.
+        loaded.forEach(configurationProperties::putIfAbsent);
+
+        ProcessorScanner processorScanner = new ProcessorScanner(mainClass, logger);
+        Map<Class<? extends Annotation>, Class<? extends ComponentProcessor>> processorMap = processorScanner.scan();
+
+        ComponentScanner componentScanner = new ComponentScanner(mainClass, resolveScanPackages(), logger);
+        List<Class<?>> components = componentScanner.scan();
+
+        for (Class<?> clazz : components) {
+            List<ComponentProcessor> processors = resolveProcessors(clazz, processorMap);
+            for (ComponentProcessor processor : processors) {
+                processor.validate();
+                for (String name : processor.beanNames()) {
+                    componentsByBeanName.put(name, clazz);
+                }
+            }
+            processorsByClass.put(clazz, processors);
+        }
+
+        for (Class<?> clazz : components) {
+            getOrCreate(clazz);
+        }
+
+        for (Class<?> clazz : components) {
+            // The field/method lifecycle (@Autowired/@Value/@PostConstruct) is identical across a
+            // component's processors, so it runs once. Class-level annotation handlers, however, may
+            // differ per processor (e.g. an overriding agent processor that also handles @UseMcp), so
+            // every processor gets to fire those.
+            List<ComponentProcessor> processors = processorsByClass.get(clazz);
+            Object instance = singletons.get(clazz);
+            processors.get(0).process(instance);
+            for (int i = 1; i < processors.size(); i++) {
+                processors.get(i).processAnnotations(instance);
+            }
+        }
+
+        for (Runnable callback : readyCallbacks) {
+            callback.run();
+        }
+    }
+
+    /**
+     * Registers a callback to run once {@link #bootstrap()} has fully wired every component. Useful
+     * for processors that need to act after all beans exist (rather than mid-construction).
+     */
+    public void onReady(Runnable callback) {
+        readyCallbacks.add(callback);
+    }
+
+    private List<String> resolveScanPackages() {
+        String configured = getProperty("sprout.scan.base-packages");
+        if (configured == null || configured.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(configured.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+    }
+
+    /**
+     * Resolves every processor whose annotation is present on the component. A class may carry more
+     * than one specialized annotation (e.g. {@code @Agent} together with {@code @Mcp}); each
+     * matching processor contributes its specialization. When none match, the default
+     * {@link ComponentProcessor} handles plain wiring.
+     */
+    private List<ComponentProcessor> resolveProcessors(Class<?> clazz,
+                                                Map<Class<? extends Annotation>, Class<? extends ComponentProcessor>> processorMap) {
+        List<ComponentProcessor> processors = new ArrayList<>();
+        for (Map.Entry<Class<? extends Annotation>, Class<? extends ComponentProcessor>> entry : processorMap.entrySet()) {
+            if (clazz.isAnnotationPresent(entry.getKey())) {
+                processors.add(instantiateProcessor(entry.getValue(), clazz));
+            }
+        }
+        if (processors.isEmpty()) {
+            processors.add(new ComponentProcessor(clazz, this));
+        }
+        return processors;
+    }
+
+    private ComponentProcessor instantiateProcessor(Class<? extends ComponentProcessor> processorClass, Class<?> clazz) {
+        try {
+            Constructor<? extends ComponentProcessor> ctor = processorClass.getConstructor(Class.class, SproutContainer.class);
+            return ctor.newInstance(clazz, this);
+        } catch (Exception e) {
+            throw new IllegalStateException("Sprout: failed instantiating processor " + processorClass + " for " + clazz, e);
+        }
+    }
+
+    private Object getOrCreate(Class<?> clazz) {
+        Object existing = singletons.get(clazz);
+        if (existing != null) {
+            return existing;
+        }
+        List<ComponentProcessor> processors = processorsByClass.get(clazz);
+        if (processors == null) {
+            throw new IllegalStateException("Sprout: no managed component for type " + clazz);
+        }
+        if (!underConstruction.add(clazz)) {
+            throw new IllegalStateException("Sprout: circular dependency detected: " + underConstruction + " -> " + clazz);
+        }
+        try {
+            // Each processor's instantiate() is run; the base instantiation is idempotent (it returns
+            // the already-registered singleton), so specialized processors share the one instance.
+            Object instance = null;
+            for (ComponentProcessor processor : processors) {
+                Object created = processor.instantiate();
+                if (instance == null) {
+                    instance = created;
+                }
+                for (String name : processor.beanNames()) {
+                    singletonsByName.put(name, instance);
+                }
+            }
+            return instance;
+        } finally {
+            underConstruction.remove(clazz);
+        }
+    }
+
+    public Object getOrCreateByType(Class<?> type) {
+        Object existing = singletons.get(type);
+        if (existing != null) {
+            return existing;
+        }
+        if (processorsByClass.containsKey(type)) {
+            return getOrCreate(type);
+        }
+        Class<?> match = null;
+        for (Class<?> candidate : processorsByClass.keySet()) {
+            if (type.isAssignableFrom(candidate)) {
+                if (match != null) {
+                    throw new IllegalStateException(
+                            "Sprout: ambiguous dependency for type " + type + " (" + match + ", " + candidate + ")");
+                }
+                match = candidate;
+            }
+        }
+        if (match != null) {
+            return getOrCreate(match);
+        }
+        return externalBeanResolver == null ? null : externalBeanResolver.resolveByType(type);
+    }
+
+    public Object getOrCreateByName(String name) {
+        Object existing = singletonsByName.get(name);
+        if (existing != null) {
+            return existing;
+        }
+        Class<?> clazz = componentsByBeanName.get(name);
+        if (clazz == null) {
+            return externalBeanResolver == null ? null : externalBeanResolver.resolveByName(name);
+        }
+        getOrCreate(clazz);
+        return singletonsByName.get(name);
+    }
+
+    /**
+     * Registers a fallback resolver consulted when a dependency cannot be satisfied by a
+     * Sprout-managed component. Must be set before {@link #bootstrap()} for it to take effect
+     * during wiring.
+     */
+    public void setExternalBeanResolver(ExternalBeanResolver externalBeanResolver) {
+        this.externalBeanResolver = externalBeanResolver;
+    }
+
+    public void shutdown() {
+        singletons.clear();
+        singletonsByName.clear();
+    }
+
+    public void registerSingleton(Class<?> type, Object instance) {
+        singletons.put(type, instance);
+        singletonsByName.put(toBeanName(type), instance);
+    }
+
+    public void registerSingleton(String name, Object instance) {
+        singletonsByName.put(name, instance);
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T> T getSingleton(Class<T> type) {
+        return (T) singletons.get(type);
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T> T getSingleton(String name) {
+        return (T) singletonsByName.get(name);
+    }
+
+    /**
+     * Snapshot of every managed singleton keyed by bean name. Intended for embedding containers
+     * (e.g. the Spring Boot starter) that want to expose Sprout beans in their own registry.
+     */
+    public Map<String, Object> getSingletonsByName() {
+        return Map.copyOf(singletonsByName);
+    }
+
+    private static String toBeanName(Class<?> type) {
+        String name = type.getSimpleName();
+        return Character.toLowerCase(name.charAt(0)) + name.substring(1);
+    }
+
+    public Class<?> mainClass() {
+        return mainClass;
+    }
+
+    public Logger logger() {
+        return logger;
+    }
+
+    public String getProperty(String key) {
+        String raw = lookupRaw(key);
+        return raw == null ? null : PropertyResolver.resolve(raw, this::lookupRaw);
+    }
+
+    public String getProperty(String key, String defaultValue) {
+        String value = getProperty(key);
+        return value == null ? defaultValue : value;
+    }
+
+    public String resolveExpression(String expression) {
+        return PropertyResolver.resolve(expression, this::lookupRaw);
+    }
+
+    public void setProperty(String key, String value) {
+        configurationProperties.put(key, value);
+    }
+
+    public Map<String, String> getAllProperties() {
+        Map<String, String> resolved = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : configurationProperties.entrySet()) {
+            resolved.put(entry.getKey(), PropertyResolver.resolve(entry.getValue(), this::lookupRaw));
+        }
+        return Map.copyOf(resolved);
+    }
+
+    private String lookupRaw(String key) {
+        String value = configurationProperties.get(key);
+        if (value == null) {
+            value = System.getProperty(key);
+        }
+        if (value == null) {
+            value = System.getenv(key);
+        }
+        if (value == null) {
+            value = System.getenv(toEnvVarName(key));
+        }
+        return value;
+    }
+
+    private static String toEnvVarName(String key) {
+        return key.toUpperCase(Locale.ROOT).replace('.', '_').replace('-', '_');
+    }
+}

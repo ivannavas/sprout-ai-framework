@@ -1,0 +1,15 @@
+{
+  "properties": [
+    {
+      "name": "sprout.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether the Sprout container is bootstrapped and its beans exposed to Spring.",
+      "defaultValue": true
+    },
+    {
+      "name": "sprout.scan.base-packages",
+      "type": "java.util.List<java.lang.String>",
+      "description": "Packages Sprout scans for components. When empty, the package of the Spring Boot main application class is used."
+    }
+  ]
+}

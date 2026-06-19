@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.ivannavas</groupId>
+        <artifactId>sprout-ai-framework</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>sprout-examples</artifactId>
+    <name>Sprout Examples</name>
+    <description>
+        A single module bundling the Sprout examples, one per package:
+        basic (plain Java), spring (Spring Boot integration) and mcp (MCP server + client agent).
+    </description>
+
+    <properties>
+        <spring-boot.version>3.4.1</spring-boot.version>
+        <!-- Examples are not published to Maven Central. -->
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- basic example -->
+        <dependency>
+            <groupId>io.github.ivannavas</groupId>
+            <artifactId>sprout-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.ivannavas</groupId>
+            <artifactId>sprout-anthropic</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- mcp example -->
+        <dependency>
+            <groupId>io.github.ivannavas</groupId>
+            <artifactId>sprout-mcp</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- spring example -->
+        <dependency>
+            <groupId>io.github.ivannavas</groupId>
+            <artifactId>sprout-spring-boot-starter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Runs the Spring example: mvn -pl sprout-examples spring-boot:run -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring-boot.version}</version>
+                <configuration>
+                    <mainClass>io.github.ivannavas.sprout.example.spring.SpringExampleApplication</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <!--
+      The basic and mcp examples are plain SproutApplication entry points. Each lives in its own
+      package so Sprout's package-scoped component scanning keeps them isolated even on the shared
+      classpath. They are run with exec:exec (a forked JVM) rather than exec:java so that
+      java.class.path carries the full runtime classpath: Sprout's scanner reads java.class.path to
+      locate components (the basic example must scan the sprout-anthropic dependency), and the mcp
+      example's @UseMcp launches its server with ${java.class.path}. They are split into profiles so
+      the basic run's scan configuration does not leak into the mcp run.
+        basic (default): mvn -pl sprout-examples -am exec:exec
+        mcp:             mvn -pl sprout-examples -am -Pmcp exec:exec
+    -->
+    <profiles>
+        <profile>
+            <id>basic</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.2.0</version>
+                        <configuration>
+                            <executable>${java.home}/bin/java</executable>
+                            <arguments>
+                                <argument>-Dsprout.scan.base-packages=io.github.ivannavas.sprout.example.basic,io.github.ivannavas.sprout.anthropic</argument>
+                                <argument>-classpath</argument>
+                                <classpath/>
+                                <argument>io.github.ivannavas.sprout.example.basic.ExampleApplication</argument>
+                            </arguments>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>mcp</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.2.0</version>
+                        <configuration>
+                            <executable>${java.home}/bin/java</executable>
+                            <arguments>
+                                <argument>-classpath</argument>
+                                <classpath/>
+                                <argument>io.github.ivannavas.sprout.example.mcp.agent.McpAgentApplication</argument>
+                            </arguments>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>
