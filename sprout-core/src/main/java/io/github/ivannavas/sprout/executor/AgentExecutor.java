@@ -75,13 +75,28 @@ public class AgentExecutor {
     }
 
     private AgentResult run(String conversationId, String prompt, StreamListener listener) {
-        List<Message> history = new ArrayList<>(agentData.conversationStore().load(conversationId));
-        int alreadyPersisted = history.size();
+        List<Message> history = new ArrayList<>();
 
-        if (history.isEmpty() && !agentData.systemPrompt().isEmpty()) {
+        // Apply this agent's own system prompt at the head of every run rather than persisting it once.
+        // The stored transcript therefore holds no system message, so when an agent picks up a
+        // conversation another agent started (a hand-off), it still governs its turns with its own
+        // instructions instead of inheriting the previous agent's — and any persisted system message
+        // from an earlier turn is dropped here so only the current prompt is in effect.
+        if (!agentData.systemPrompt().isEmpty()) {
             history.add(Message.system(agentData.systemPrompt()));
         }
-        history.add(Message.user(prompt));
+        for (Message message : agentData.conversationStore().load(conversationId)) {
+            if (message.role() != Role.SYSTEM) {
+                history.add(message);
+            }
+        }
+
+        // Tracked separately from the system prompt and prior history, so only genuinely new turns are
+        // appended to the store.
+        List<Message> newMessages = new ArrayList<>();
+        Message userMessage = Message.user(prompt);
+        history.add(userMessage);
+        newMessages.add(userMessage);
 
         List<ToolDefinition> tools = buildToolDefinitions();
         TokenUsage totalUsage = TokenUsage.ZERO;
@@ -91,9 +106,10 @@ public class AgentExecutor {
 
             totalUsage = totalUsage.plus(response.usage());
             history.add(response.message());
+            newMessages.add(response.message());
 
             if (!response.message().requestsTools()) {
-                agentData.conversationStore().append(conversationId, history.subList(alreadyPersisted, history.size()));
+                agentData.conversationStore().append(conversationId, newMessages);
                 if (listener != null) {
                     listener.onComplete(response);
                 }
@@ -101,11 +117,13 @@ public class AgentExecutor {
             }
 
             for (ToolCall call : response.message().toolCalls()) {
-                history.add(Message.tool(dispatch(call)));
+                Message toolMessage = Message.tool(dispatch(call));
+                history.add(toolMessage);
+                newMessages.add(toolMessage);
             }
         }
 
-        agentData.conversationStore().append(conversationId, history.subList(alreadyPersisted, history.size()));
+        agentData.conversationStore().append(conversationId, newMessages);
         throw new IllegalStateException(
                 "Agent exceeded " + agentData.maxIterations() + " iterations without a final answer");
     }

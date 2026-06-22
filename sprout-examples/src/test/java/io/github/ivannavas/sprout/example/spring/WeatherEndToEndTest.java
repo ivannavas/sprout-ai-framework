@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -32,6 +33,16 @@ class WeatherEndToEndTest {
         assertThat(result)
                 .contains("Madrid")
                 .contains("sunny");
+    }
+
+    @Test
+    void batchEndpointFansCitiesOutConcurrently() {
+        Map<String, String> forecasts = controller.weatherBatch(List.of("Madrid", "Paris", "London"));
+
+        assertThat(forecasts).containsOnlyKeys("Madrid", "Paris", "London");
+        assertThat(forecasts.get("Madrid")).contains("Madrid").contains("sunny");
+        assertThat(forecasts.get("Paris")).contains("Paris");
+        assertThat(forecasts.get("London")).contains("London");
     }
 
     @Test

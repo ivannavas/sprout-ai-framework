@@ -54,6 +54,13 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- orchestration example -->
+        <dependency>
+            <groupId>io.github.ivannavas</groupId>
+            <artifactId>sprout-orchestration</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- spring example -->
         <dependency>
             <groupId>io.github.ivannavas</groupId>
@@ -104,6 +111,7 @@
       the basic run's scan configuration does not leak into the mcp run.
         basic (default): mvn -pl sprout-examples -am exec:exec
         mcp:             mvn -pl sprout-examples -am -Pmcp exec:exec
+        orchestration:   mvn -pl sprout-examples -am -Porchestration exec:exec
     -->
     <profiles>
         <profile>
@@ -144,6 +152,26 @@
                                 <argument>-classpath</argument>
                                 <classpath/>
                                 <argument>io.github.ivannavas.sprout.example.mcp.agent.McpAgentApplication</argument>
+                            </arguments>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>orchestration</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.2.0</version>
+                        <configuration>
+                            <executable>${java.home}/bin/java</executable>
+                            <arguments>
+                                <argument>-classpath</argument>
+                                <classpath/>
+                                <argument>io.github.ivannavas.sprout.example.orchestration.OrchestrationExampleApplication</argument>
                             </arguments>
                         </configuration>
                     </plugin>

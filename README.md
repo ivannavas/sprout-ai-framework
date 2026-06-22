@@ -32,6 +32,7 @@ directions.
 | `sprout-anthropic` | `ModelExecutor` for Anthropic's Messages API (`@Model("anthropic")`). |
 | `sprout-openai` | `ModelExecutor` for OpenAI's Chat Completions API (`@Model("openai")`). |
 | `sprout-mcp` | Model Context Protocol support: expose `@Tool` methods as an MCP server, and consume remote MCP servers from an agent. |
+| `sprout-orchestration` | Run agent prompts concurrently, let a supervisor delegate subtasks to specialist agents, and hand a conversation off between agents. |
 | `sprout-spring-boot-starter` | Runs Sprout inside Spring Boot, bridging beans and configuration both ways. See its [README](sprout-spring-boot-starter/README.md). |
 | `sprout-examples` | Runnable examples (basic, MCP, Spring). See its [README](sprout-examples/README.md). |
 
@@ -104,6 +105,9 @@ The executor loops: it sends the conversation to the model, dispatches any tool 
 results back, and repeats until the model produces a final answer or `maxIterations` is reached.
 Conversation history is persisted through an `AbstractConversationStore` — a thread-safe in-memory
 one by default (an agent is a shared singleton, so its store is too); swap in your own to persist it.
+The system prompt is applied at the head of each run rather than stored, so it always reflects the
+agent's current configuration — and an agent that picks up a conversation another started (a hand-off)
+governs its turns with its own prompt.
 
 To stream a run instead of blocking, call `executeStream(conversationId, prompt, listener)`:
 assistant tokens, tool calls and the final response are delivered through a `StreamListener` as they
@@ -113,6 +117,86 @@ incremental chunks, otherwise each turn's text arrives in one piece.
 Since the agent is itself a managed bean, you don't have to look it up — you can `@Autowired` it by
 type (`AgentExecutor`) or by its `<agentName>Executor` name, which is exactly what the Spring
 example's controller does.
+
+### Orchestrating concurrent runs
+
+With `sprout-orchestration`, an `AgentOrchestrator` wraps an `AgentExecutor` to run several prompts at
+once. Each `execute` is scheduled on a worker thread and returns immediately, so the calls fan out
+concurrently; results (and failures) land on an internal replay stream you can read by id, as a
+reactive stream, or by blocking until a batch finishes. A failing run is isolated as a failed
+`Execution` and never tears down the others, and the orchestrator is `AutoCloseable`:
+
+```java
+AgentExecutor agent = container.getSingleton("researchAgentExecutor");
+
+try (AgentOrchestrator orchestrator = AgentOrchestrator.of(agent)) {
+    orchestrator.execute("Tell me about Mars", "mars", "mars-session")
+                .execute("Tell me about Venus", "venus", "venus-session")
+                .waitForExecutions();
+
+    System.out.println(orchestrator.getResult("mars").block().response());
+}
+```
+
+Each `execute` takes the prompt, an execution id to read the result back by, and an optional per-run
+session so independent runs keep separate conversations.
+
+Optional knobs — `withMaxConcurrency`, `withTimeout` and `withRetries` — bound how the runs execute.
+This is concurrent execution of independent runs (cross-agent *delegation* is the
+[next section](#agent-delegation)). It shows up across the
+[examples](sprout-examples/README.md): the basic app fans concurrent questions out to a live model, the
+Spring app exposes a `/weather/batch` endpoint that runs a forecast per city at once, and there is a
+dedicated offline orchestration example.
+
+### Agent delegation
+
+The same module lets one agent delegate to others. An `AgentDelegation` exposes a set of **specialist**
+agents to a **supervisor** as tools — one per specialist — through the very same `ToolProvider` SPI the
+agent already uses for its `@Tool` methods and for MCP servers, so the executor needs no special-casing.
+When the supervisor's model decides a subtask belongs to a specialist, it "calls" it like any other
+tool; the specialist runs and its answer flows back as the tool result, so the supervisor composes a
+final reply from its team's work:
+
+```java
+AgentExecutor supervisor = container.getSingleton("supervisorAgentExecutor");
+
+AgentDelegation.builder()
+        .specialist("math", "Solves arithmetic and number problems.", mathAgent)
+        .specialist("history", "Answers history and general-knowledge questions.", historyAgent)
+        .attachTo(supervisor);
+
+// The supervisor's model routes each question to the right specialist, which actually runs.
+System.out.println(supervisor.execute("session", "What is 6 times 7?").response());
+```
+
+Each delegation runs as an independent sub-conversation, so specialists stay stateless across calls —
+including from supervisor runs an `AgentOrchestrator` drives concurrently. See it in the runnable
+[orchestration example](sprout-examples/README.md).
+
+### Agent hand-off
+
+Hand-off goes a step further than delegation: instead of calling a specialist as an isolated sub-task
+and composing the reply itself, an agent **transfers control**. An `AgentHandoff` gives every member of
+a team a `handoff_to_<member>` tool; when the active agent calls one, the conversation passes to that
+agent, which continues the *same* shared transcript and produces the final answer (and may hand off
+again). The loop ends when an agent finishes without handing off:
+
+```java
+AgentHandoff team = AgentHandoff.builder()
+        .member("triage", "First point of contact; routes the user.", triageAgent)
+        .member("billing", "Handles invoices, payments and refunds.", billingAgent)
+        .member("tech", "Handles login, passwords and technical errors.", techAgent)
+        .build();
+
+AgentHandoff.HandoffResult result = team.run("I have a question about my invoice.");
+System.out.println(result.path());     // [triage, billing]
+System.out.println(result.response()); // the billing agent's answer
+```
+
+The team members share one conversation store (point them at a common `@ConversationStore` bean) so the
+receiving agent sees the whole history, while still applying its *own* system prompt to its turns;
+`maxHandoffs` bounds the transfers. See it in the runnable
+[orchestration example](sprout-examples/README.md).
 
 ### MCP
 
@@ -216,20 +300,28 @@ transport, a persistence-backed conversation store, custom stereotypes, and so o
 mvn package
 ```
 
-## Run the examples
+## Examples
 
-```bash
-# basic (needs ANTHROPIC_API_KEY)
-mvn -pl sprout-examples -am exec:exec
+| Example | What it shows | Run |
+|---|---|---|
+| basic | A plain-Java agent on a live model, then several runs fanned out concurrently | `mvn -pl sprout-examples -am exec:exec` *(needs `ANTHROPIC_API_KEY`)* |
+| mcp | Publish `@Tool` methods as an MCP server and consume them from a client agent | `mvn -pl sprout-examples -am -Pmcp exec:exec` |
+| orchestration | Concurrent runs, supervisor **delegation** and conversation **hand-off** — one cast of agents | `mvn -pl sprout-examples -am -Porchestration exec:exec` |
+| **spring** | **Spring + orchestration together** — see below | `mvn -pl sprout-examples -am spring-boot:run` |
 
-# mcp (offline, no API key)
-mvn -pl sprout-examples -am -Pmcp exec:exec
+> **The headline — Spring + orchestration in one request.** The Spring example's `/weather/batch`
+> endpoint is a plain `@RestController` that fans a forecast-per-city out **concurrently** with
+> `AgentOrchestrator`, over a Spring-managed `@Agent` whose tool is a Spring `@Service` and whose
+> conversations persist to a database. So a single HTTP call drives concurrent multi-agent work with
+> Spring DI and JPA persistence — no separate Python service, no new programming model:
+>
+> ```bash
+> mvn -pl sprout-examples -am spring-boot:run
+> curl "http://localhost:8080/weather/batch?cities=Madrid,Paris,London"
+> ```
 
-# spring
-mvn -pl sprout-examples -am spring-boot:run
-```
-
-See [sprout-examples/README.md](sprout-examples/README.md) for what each one demonstrates.
+Everything but `basic` runs offline with no API key. See
+[sprout-examples/README.md](sprout-examples/README.md) for a full walkthrough.
 
 ## What's coming
 
@@ -251,7 +343,9 @@ This is the first release, so the surface is deliberately focused. The list belo
   `@PreDestroy` lifecycle callback.
 - **Configuration coherence.** Make `@Configuration` classes discoverable on their own and document
   precedence rules end to end.
-- **Multi-agent orchestration.** Agents that delegate to or hand off between other agents.
+- **Richer multi-agent teams.** `sprout-orchestration` already does concurrent runs, supervisor
+  *delegation* and conversation *hand-off* (each agent keeping its own system prompt); next is dynamic
+  team membership and shared scratchpad state.
 - **Memory & RAG.** Vector-store integration and retrieval tools as a first-class module.
 - **Observability.** Tracing, metrics and token/cost accounting hooks around the agent loop.
 - **Structured output.** Schema-constrained model output mapped to typed Java objects.

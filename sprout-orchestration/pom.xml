@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>io.github.ivannavas</groupId>
+        <artifactId>sprout-ai-framework</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>sprout-orchestration</artifactId>
+
+    <name>Sprout Orchestration</name>
+    <description>Concurrent, reactive orchestration of Sprout agent executions.</description>
+
+    <properties>
+        <reactor.version>3.6.15</reactor.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.github.ivannavas</groupId>
+            <artifactId>sprout-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-core</artifactId>
+            <version>${reactor.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-test</artifactId>
+            <version>${reactor.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
