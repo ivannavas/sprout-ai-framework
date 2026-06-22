@@ -198,6 +198,36 @@ receiving agent sees the whole history, while still applying its *own* system pr
 `maxHandoffs` bounds the transfers. See it in the runnable
 [orchestration example](sprout-examples/README.md).
 
+### Composing the patterns
+
+The three compose. Because delegation happens *inside* an agent's own run, a delegating **supervisor** is
+just an `AgentExecutor` — so you can orchestrate it concurrently **and** make it the target of a hand-off,
+all around one hub:
+
+```java
+AgentDelegation.builder()
+        .specialist("math", "Arithmetic.", mathAgent)
+        .specialist("history", "History questions.", historyAgent)
+        .attachTo(supervisor);
+
+// Orchestration × delegation — run a batch through the delegating supervisor, concurrently.
+try (AgentOrchestrator orchestrator = AgentOrchestrator.of(supervisor)) {
+    questions.forEach(q -> orchestrator.execute(q, q, "batch-" + q));
+    orchestrator.waitForExecutions();
+}
+
+// Hand-off × delegation — a triage front desk transfers control to that same supervisor.
+AgentHandoff desk = AgentHandoff.builder()
+        .member("triage", "Front desk; escalates to the supervisor.", triage)
+        .member("supervisor", "Researches by delegating to specialists.", supervisor)
+        .build();
+desk.run("Who painted the Mona Lisa?");   // triage -> supervisor (which delegates) -> answer
+```
+
+The [orchestration example](sprout-examples/README.md) runs exactly this. And since these are plain
+objects over `AgentExecutor` beans, the same composition drops straight into a Spring `@RestController` —
+the same way the [`/weather/batch`](#examples) endpoint fans agent runs out concurrently inside Spring.
+
 ### MCP
 
 With `sprout-mcp` on the classpath, an `@Mcp` bean's `@Tool` methods are published over the Model

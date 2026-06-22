@@ -47,40 +47,41 @@ mvn -pl sprout-examples -am -Pmcp exec:exec
 
 ## orchestration
 
-`OrchestrationExampleApplication` is one runnable tour of [`sprout-orchestration`](../sprout-orchestration)'s
-three multi-agent patterns, sharing a single cast of agents — a `MathSpecialist` and a
-`HistorySpecialist`, plus a `SupervisorAgent` and a `TriageAgent`. It uses deterministic stub models, so
-no API key is needed:
+`OrchestrationExampleApplication` is a research desk that shows `sprout-orchestration`'s three patterns
+**composing** around one hub — a **supervisor that delegates** each question to a `MathSpecialist` or a
+`HistorySpecialist`. A `TriageAgent` front desk sits in front of it. It uses deterministic stub models,
+so no API key is needed:
 
 ```bash
 mvn -pl sprout-examples -am -Porchestration exec:exec
 ```
 
-1. **Concurrent orchestration** — an `AgentOrchestrator` fans three questions out to the history
-   specialist at once (each `execute(prompt, id, session)` on its own worker thread and session), then
-   `waitForExecutions()` blocks and the answers are read back by id with `getResult(id)`.
-2. **Delegation** — the supervisor exposes the specialists as tools through an `AgentDelegation` (a
-   `ToolProvider`, the same SPI MCP uses); it routes each question to one, which runs as an isolated
-   sub-task, and composes the reply. Control stays with the supervisor.
-3. **Hand-off** — an `AgentHandoff` wires a `handoff_to_<member>` tool onto every team member; the
-   triage agent transfers the conversation to a specialist, which **takes over** the shared transcript
-   (the team shares a `TeamConversationStore`) and produces the final answer.
+The composition is the point — delegation happens *inside* the supervisor's run, so it nests naturally
+under the other two:
+
+1. **Delegation** — the supervisor exposes the specialists as tools through an `AgentDelegation` (a
+   `ToolProvider`, the same SPI MCP uses), routes a question to one, and composes the reply.
+2. **Orchestration × delegation** — an `AgentOrchestrator` runs a whole batch through that delegating
+   supervisor **concurrently** (one worker thread and session per item), then collects the answers by id.
+3. **Hand-off × delegation** — an `AgentHandoff` lets the triage agent **transfer control** to the same
+   supervisor (over a shared `TeamConversationStore`), which then delegates and produces the final answer.
 
 Expected output:
 
 ```
-== Concurrent orchestration ==
-  Tell me about the Mona Lisa -> Leonardo da Vinci painted the Mona Lisa, around 1503-1506.
-  Tell me about the Moon -> Apollo 11 first landed humans on the Moon in 1969.
-  Tell me about Rome -> Rome was, according to legend, founded in 753 BC.
-== Delegation ==
+== Delegation: supervisor -> specialist ==
   What is 6 times 7? -> 6 times 7 is 42.
+== Orchestration x Delegation: a concurrent batch, each delegated ==
+  What is 8 times 9? -> 8 times 9 is 72.
   Who painted the Mona Lisa? -> Leonardo da Vinci painted the Mona Lisa, around 1503-1506.
-== Hand-off ==
-    path:   triage -> math
-    answer: 8 times 9 is 72.
-    path:   triage -> history
+  What is 100 plus 23? -> 100 plus 23 is 123.
+== Hand-off x Delegation: triage -> supervisor -> specialist ==
+  Who painted the Mona Lisa?
+    path:   triage -> supervisor (supervisor delegates internally)
     answer: Leonardo da Vinci painted the Mona Lisa, around 1503-1506.
+  What is 12 plus 30?
+    path:   triage -> supervisor (supervisor delegates internally)
+    answer: 12 plus 30 is 42.
 ```
 
 ## spring

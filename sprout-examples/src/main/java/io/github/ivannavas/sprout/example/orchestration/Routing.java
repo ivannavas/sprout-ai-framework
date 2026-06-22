@@ -5,7 +5,7 @@ import io.github.ivannavas.sprout.model.Role;
 
 import java.util.List;
 
-/** Tiny shared routing helpers used by the supervisor and triage models to pick a specialist. */
+/** Tiny shared routing helpers used by the supervisor model to pick a specialist. */
 final class Routing {
 
     private Routing() {
@@ -19,11 +19,15 @@ final class Routing {
                 || lower.contains("multiply") || lower.contains("sum") || lower.contains("add");
     }
 
-    /** The most recent user message's text, which the routers classify. */
-    static String userText(List<Message> messages) {
-        for (int i = messages.size() - 1; i >= 0; i--) {
-            if (messages.get(i).role() == Role.USER) {
-                return messages.get(i).content();
+    /**
+     * The first user message in the conversation. The supervisor classifies this — using the first
+     * (the original request) rather than the last keeps it working both as an entry agent and when it
+     * picks up a hand-off, where the latest user message is just a "continue" nudge.
+     */
+    static String firstUserText(List<Message> messages) {
+        for (Message message : messages) {
+            if (message.role() == Role.USER) {
+                return message.content();
             }
         }
         return "";

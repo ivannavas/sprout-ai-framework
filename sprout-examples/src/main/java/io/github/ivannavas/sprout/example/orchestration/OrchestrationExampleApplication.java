@@ -3,6 +3,7 @@ package io.github.ivannavas.sprout.example.orchestration;
 import io.github.ivannavas.sprout.SproutApplication;
 import io.github.ivannavas.sprout.container.SproutContainer;
 import io.github.ivannavas.sprout.executor.AgentExecutor;
+import io.github.ivannavas.sprout.model.AgentResult;
 import io.github.ivannavas.sprout.orchestration.delegation.AgentDelegation;
 import io.github.ivannavas.sprout.orchestration.handoff.AgentHandoff;
 import io.github.ivannavas.sprout.orchestration.orchestrator.AgentOrchestrator;
@@ -11,16 +12,16 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * One runnable tour of {@code sprout-orchestration}'s three multi-agent patterns, sharing a single cast
- * of agents (a math and a history specialist, plus a supervisor and a triage front desk):
+ * A research desk that shows {@code sprout-orchestration}'s three patterns <em>composing</em>, around
+ * one hub: a <b>supervisor that delegates</b> each question to a {@code math} or {@code history}
+ * specialist.
  *
  * <ol>
- *   <li><b>Concurrent orchestration</b> — fan several prompts out to one agent at once with
- *       {@link AgentOrchestrator} and collect the results by id.</li>
- *   <li><b>Delegation</b> — a supervisor calls specialists as tools via {@link AgentDelegation} and
- *       composes the reply; control stays with the supervisor.</li>
- *   <li><b>Hand-off</b> — a triage agent transfers the conversation to a specialist via
- *       {@link AgentHandoff}; control passes and the specialist produces the final answer.</li>
+ *   <li><b>Delegation</b> — the supervisor routes one question to a specialist and composes the reply.</li>
+ *   <li><b>Orchestration × delegation</b> — an {@link AgentOrchestrator} runs a whole batch of questions
+ *       through that delegating supervisor <em>concurrently</em>.</li>
+ *   <li><b>Hand-off × delegation</b> — a triage front desk uses {@link AgentHandoff} to transfer a live
+ *       conversation to the same supervisor, which then delegates and answers.</li>
  * </ol>
  *
  * Everything is offline and deterministic, so no API key is needed.
@@ -35,63 +36,62 @@ public final class OrchestrationExampleApplication {
         AgentExecutor supervisor = container.getSingleton("supervisorAgentExecutor");
         AgentExecutor triage = container.getSingleton("triageAgentExecutor");
 
-        concurrentOrchestration(history);
-        delegation(supervisor, math, history);
-        handoff(triage, math, history);
-    }
-
-    /** 1. Fan independent questions out to one agent concurrently and read the answers back by id. */
-    private static void concurrentOrchestration(AgentExecutor history) {
-        System.out.println("== Concurrent orchestration ==");
-        List<String> questions = List.of(
-                "Tell me about the Mona Lisa",
-                "Tell me about the Moon",
-                "Tell me about Rome");
-
-        try (AgentOrchestrator orchestrator = AgentOrchestrator.of(history)) {
-            for (String question : questions) {
-                orchestrator.execute(question, question, question);
-            }
-            orchestrator.waitForExecutions();
-
-            for (String question : questions) {
-                System.out.println("  " + question + " -> " + answerOf(orchestrator.getResult(question).block()));
-            }
-        }
-    }
-
-    /** 2. A supervisor delegates each question to a specialist tool and composes the reply. */
-    private static void delegation(AgentExecutor supervisor, AgentExecutor math, AgentExecutor history) {
-        System.out.println("== Delegation ==");
+        // The hub: give the supervisor its team of specialists to delegate to. Delegation then happens
+        // inside the supervisor's own run, so it composes naturally under both orchestration and hand-off.
         AgentDelegation.builder()
                 .specialist("math", "Solves arithmetic and number problems.", math)
                 .specialist("history", "Answers history and general-knowledge questions.", history)
                 .attachTo(supervisor);
 
-        for (String question : List.of("What is 6 times 7?", "Who painted the Mona Lisa?")) {
-            String answer = supervisor.execute("delegation-" + question, question).response();
-            System.out.println("  " + question + " -> " + answer);
+        delegation(supervisor);
+        orchestrationWithDelegation(supervisor);
+        handoffWithDelegation(triage, supervisor);
+    }
+
+    /** 1. Delegation: one question routed to a specialist and composed back. */
+    private static void delegation(AgentExecutor supervisor) {
+        System.out.println("== Delegation: supervisor -> specialist ==");
+        String question = "What is 6 times 7?";
+        System.out.println("  " + question + " -> " + supervisor.execute("delegation-demo", question).response());
+    }
+
+    /** 2. Orchestration × delegation: a concurrent batch, each item handled by the delegating supervisor. */
+    private static void orchestrationWithDelegation(AgentExecutor supervisor) {
+        System.out.println("== Orchestration x Delegation: a concurrent batch, each delegated ==");
+        List<String> batch = List.of(
+                "What is 8 times 9?",
+                "Who painted the Mona Lisa?",
+                "What is 100 plus 23?");
+
+        try (AgentOrchestrator orchestrator = AgentOrchestrator.of(supervisor)) {
+            for (String question : batch) {
+                orchestrator.execute(question, question, "batch-" + question);
+            }
+            orchestrator.waitForExecutions();
+
+            for (String question : batch) {
+                System.out.println("  " + question + " -> " + answerOf(orchestrator.getResult(question).block()));
+            }
         }
     }
 
-    /** 3. A triage agent hands the conversation off to a specialist, which takes over and answers. */
-    private static void handoff(AgentExecutor triage, AgentExecutor math, AgentExecutor history) {
-        System.out.println("== Hand-off ==");
-        AgentHandoff team = AgentHandoff.builder()
-                .member("triage", "First point of contact; routes the user.", triage)
-                .member("math", "Solves arithmetic and number problems.", math)
-                .member("history", "Answers history and general-knowledge questions.", history)
+    /** 3. Hand-off × delegation: triage transfers control to the supervisor, which then delegates. */
+    private static void handoffWithDelegation(AgentExecutor triage, AgentExecutor supervisor) {
+        System.out.println("== Hand-off x Delegation: triage -> supervisor -> specialist ==");
+        AgentHandoff desk = AgentHandoff.builder()
+                .member("triage", "Front desk; escalates the conversation to the supervisor.", triage)
+                .member("supervisor", "Researches by delegating to the math and history specialists.", supervisor)
                 .build();
 
-        for (String request : List.of("What is 8 times 9?", "Who painted the Mona Lisa?")) {
-            AgentHandoff.HandoffResult result = team.run(request);
+        for (String request : List.of("Who painted the Mona Lisa?", "What is 12 plus 30?")) {
+            AgentHandoff.HandoffResult result = desk.run(request);
             System.out.println("  " + request);
-            System.out.println("    path:   " + String.join(" -> ", result.path()));
+            System.out.println("    path:   " + String.join(" -> ", result.path()) + " (supervisor delegates internally)");
             System.out.println("    answer: " + result.response());
         }
     }
 
-    private static String answerOf(io.github.ivannavas.sprout.model.AgentResult result) {
+    private static String answerOf(AgentResult result) {
         return Objects.requireNonNull(result).response();
     }
 }

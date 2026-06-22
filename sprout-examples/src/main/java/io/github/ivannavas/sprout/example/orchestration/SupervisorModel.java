@@ -13,9 +13,11 @@ import io.github.ivannavas.sprout.model.ToolCall;
 import java.util.List;
 
 /**
- * Offline model for the delegation supervisor. On the first turn it delegates the question to the right
- * specialist tool (anything number-flavoured to {@code math}, otherwise {@code history}); once the
- * specialist has answered (a {@code TOOL} message) it surfaces that answer as its own reply.
+ * Offline model for the supervisor — the hub that ties the three patterns together. On the first turn
+ * it delegates the question to the right specialist tool (anything number-flavoured to {@code math},
+ * otherwise {@code history}); once the specialist has answered (a {@code TOOL} message) it surfaces that
+ * answer as its own reply. It reads the original question (the first user message), so it works whether
+ * it runs as an entry agent (delegation, orchestration) or picks up a transferred conversation (hand-off).
  */
 @Model
 public class SupervisorModel extends ModelExecutor {
@@ -31,7 +33,7 @@ public class SupervisorModel extends ModelExecutor {
                     TokenUsage.ZERO, FinishReason.STOP);
         }
 
-        String task = Routing.userText(messages);
+        String task = Routing.firstUserText(messages);
         String specialist = Routing.looksMathematical(task) ? "math" : "history";
         ToolCall call = new ToolCall("call-1", specialist, "{\"task\":\"" + task + "\"}");
         return new ModelResponse(Message.assistant("", List.of(call)), TokenUsage.ZERO, FinishReason.TOOL_CALLS);

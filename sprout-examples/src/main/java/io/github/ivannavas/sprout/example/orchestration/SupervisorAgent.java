@@ -9,6 +9,7 @@ import io.github.ivannavas.sprout.executor.AgentExecutor;
  */
 @Agent(
         model = SupervisorModel.class,
+        conversationStore = TeamConversationStore.class,
         systemPrompt = "You are a supervisor. Route each question to the right specialist.",
         maxIterations = 4
 )
