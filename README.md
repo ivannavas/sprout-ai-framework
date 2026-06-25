@@ -20,21 +20,21 @@ backed by the services you already have. Sprout is also **fully Spring-compatibl
 Spring Boot starter and Sprout and Spring beans inject into each other transparently, in both
 directions.
 
-> **Version `1.0.0` — first release.** Sprout is functional and tested, but it is young: some
-> capabilities are still basic and parts of the API may change. Expect gaps and rough edges, and see
+> **Version `1.2.0`.** Sprout is functional and tested, but it is young: some capabilities are still
+> basic and parts of the API may change. Expect gaps and rough edges, and see
 > [what's coming](#whats-coming) for what's planned next.
 
 ## Modules
 
 | Module | What it provides |
 |---|---|
-| `sprout-core` | IoC container, component scanning, dependency injection, configuration, and the agent/model/tool abstractions. |
-| `sprout-anthropic` | `ModelExecutor` for Anthropic's Messages API (`@Model("anthropic")`). |
-| `sprout-openai` | `ModelExecutor` for OpenAI's Chat Completions API (`@Model("openai")`). |
+| `sprout-core` | IoC container, component scanning, dependency injection, configuration, and the agent/model/tool/RAG abstractions — including a built-in in-memory vector store and embedding model. |
+| `sprout-anthropic` | `ModelExecutor` for Anthropic's Messages API (`@Model("anthropic")`), plus a Voyage AI `EmbeddingModel` (`@Embedding`) for RAG — the embedding provider Anthropic recommends. |
+| `sprout-openai` | `ModelExecutor` for OpenAI's Chat Completions API (`@Model("openai")`), plus an `EmbeddingModel` (`@Embedding`) for OpenAI's embeddings API. |
 | `sprout-mcp` | Model Context Protocol support: expose `@Tool` methods as an MCP server, and consume remote MCP servers from an agent. |
 | `sprout-orchestration` | Run agent prompts concurrently, let a supervisor delegate subtasks to specialist agents, and hand a conversation off between agents. |
 | `sprout-spring-boot-starter` | Runs Sprout inside Spring Boot, bridging beans and configuration both ways. See its [README](sprout-spring-boot-starter/README.md). |
-| `sprout-examples` | Runnable examples (basic, MCP, Spring). See its [README](sprout-examples/README.md). |
+| `sprout-examples` | Runnable examples (basic, MCP, orchestration, RAG, Spring). See its [README](sprout-examples/README.md). |
 
 ## Requirements
 
@@ -228,6 +228,45 @@ The [orchestration example](sprout-examples/README.md) runs exactly this. And si
 objects over `AgentExecutor` beans, the same composition drops straight into a Spring `@RestController` —
 the same way the [`/weather/batch`](#examples) endpoint fans agent runs out concurrently inside Spring.
 
+### Retrieval-augmented generation (RAG)
+
+An agent can ground its answers in your own documents. Declare a **vector store** and an **embedding
+model** on `@Agent`, and before each turn Sprout embeds the user's prompt, retrieves the `retrievalTopK`
+most relevant documents and prepends them to the prompt as context. The original question is what gets
+persisted (retrieval is redone per turn, like the system prompt), so a reloaded conversation never
+carries stale context forward:
+
+```java
+@Agent(
+        model = AnthropicModelExecutor.class,
+        vectorStore = InMemoryVectorStore.class,
+        embeddingModel = VoyageEmbeddingModel.class,
+        retrievalTopK = 4)
+public class DocsAgent extends AgentExecutor {
+}
+```
+
+The building blocks live in `sprout-core` and follow the same pattern as the rest of the framework:
+an `AbstractVectorStore` (marked `@VectorStore`) stores `Document`s by their vector and searches them,
+an `EmbeddingModel` (marked `@Embedding`) turns text into vectors, and a `Retriever` ties the two
+together for both **indexing** and **querying**. You populate the store ahead of queries — point the
+agent at a managed `@VectorStore` bean so the same instance is shared with your indexing code:
+
+```java
+// At startup, index your documents into the same store the agent retrieves from.
+Retriever retriever = new Retriever(embeddingModel, vectorStore, 4);
+retriever.index(List.of(
+        Document.of("intro", "Sprout is a dependency-injection framework for AI agents in Java."),
+        Document.of("rag",   "An agent enables RAG by declaring a vector store and an embedding model.")));
+```
+
+Core ships usable defaults so RAG runs offline with no API key: `InMemoryVectorStore` (cosine
+similarity) and `HashingEmbeddingModel` (a lexical embedding). For semantic retrieval in production,
+swap in a provider-backed embedding model — `OpenaiEmbeddingModel` (`sprout-openai`) or
+`VoyageEmbeddingModel` (`sprout-anthropic`, backed by Voyage AI, which Anthropic recommends for
+embeddings) — by naming it in `@Agent(embeddingModel = ...)`. RAG stays opt-in: an agent that declares
+no vector store does no retrieval. See the runnable [RAG example](sprout-examples/README.md).
+
 ### MCP
 
 With `sprout-mcp` on the classpath, an `@Mcp` bean's `@Tool` methods are published over the Model
@@ -337,6 +376,7 @@ mvn package
 | basic | A plain-Java agent on a live model, then several runs fanned out concurrently | `mvn -pl sprout-examples -am exec:exec` *(needs `ANTHROPIC_API_KEY`)* |
 | mcp | Publish `@Tool` methods as an MCP server and consume them from a client agent | `mvn -pl sprout-examples -am -Pmcp exec:exec` |
 | orchestration | Concurrent runs, supervisor **delegation** and conversation **hand-off** — one cast of agents | `mvn -pl sprout-examples -am -Porchestration exec:exec` |
+| rag | **Retrieval-augmented generation** — an agent answers from a knowledge base indexed into the built-in vector store | `mvn -pl sprout-examples -am -Prag exec:exec` |
 | **spring** | **Spring + orchestration together** — see below | `mvn -pl sprout-examples -am spring-boot:run` |
 
 > **The headline — Spring + orchestration in one request.** The Spring example's `/weather/batch`
@@ -376,7 +416,9 @@ This is the first release, so the surface is deliberately focused. The list belo
 - **Richer multi-agent teams.** `sprout-orchestration` already does concurrent runs, supervisor
   *delegation* and conversation *hand-off* (each agent keeping its own system prompt); next is dynamic
   team membership and shared scratchpad state.
-- **Memory & RAG.** Vector-store integration and retrieval tools as a first-class module.
+- **Richer RAG.** Core RAG has shipped — per-agent retrieval, an in-memory vector store and
+  lexical/semantic embedding models; next are persistent vector-store modules (e.g. pgvector, Redis),
+  document loaders and chunking, and conversational memory.
 - **Observability.** Tracing, metrics and token/cost accounting hooks around the agent loop.
 - **Structured output.** Schema-constrained model output mapped to typed Java objects.
 - **Automatic exposure layers.** Generate a REST/SSE (and possibly gRPC) endpoint per agent.
