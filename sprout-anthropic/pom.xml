@@ -11,7 +11,7 @@
 
     <artifactId>sprout-anthropic</artifactId>
     <name>Sprout Anthropic</name>
-    <description>ModelExecutor for Anthropic's Messages API, registered as the @Model("anthropic") provider.</description>
+    <description>Anthropic provider for Sprout: a ModelExecutor for the Messages API (@Model("anthropic")) and a Voyage AI EmbeddingModel (@Embedding) — the embedding provider Anthropic recommends.</description>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

@@ -1,13 +1,16 @@
 package io.github.ivannavas.sprout.processor;
 
 import io.github.ivannavas.sprout.abstrct.AbstractConversationStore;
+import io.github.ivannavas.sprout.abstrct.AbstractVectorStore;
 import io.github.ivannavas.sprout.annotation.Agent;
 import io.github.ivannavas.sprout.annotation.Processor;
 import io.github.ivannavas.sprout.annotation.Tool;
 import io.github.ivannavas.sprout.container.SproutContainer;
+import io.github.ivannavas.sprout.embedding.EmbeddingModel;
 import io.github.ivannavas.sprout.executor.AgentExecutor;
 import io.github.ivannavas.sprout.executor.ModelExecutor;
 import io.github.ivannavas.sprout.model.AgentData;
+import io.github.ivannavas.sprout.rag.Retriever;
 
 import java.lang.reflect.Method;
 import java.util.HashMap;
@@ -46,28 +49,49 @@ public class AgentProcessor extends ComponentProcessor {
                     + " which is not a managed ModelExecutor");
         }
 
-        AbstractConversationStore store = resolveConversationStore(agent.conversationStore());
-        ((AgentExecutor) instance).configure(AgentData.fromAnnotation(agent, model, store, collectToolMethods()));
+        AbstractConversationStore store = resolveCollaborator(agent.conversationStore(),
+                AbstractConversationStore.class, "conversation store");
+        ((AgentExecutor) instance).configure(
+                AgentData.fromAnnotation(agent, model, store, resolveRetriever(agent), collectToolMethods()));
         sproutContainer.registerSingleton(executorBeanName(component), instance);
 
         return instance;
     }
 
     /**
-     * Resolves the agent's conversation store. If the declared type is a managed bean (a Sprout
-     * component or a bean from an embedding container such as Spring), that instance is used — so the
-     * store can have its own dependencies injected (e.g. a JPA repository). Otherwise it is created
-     * via its no-arg constructor, which is enough for the default in-memory store.
+     * Builds the agent's RAG retriever, or returns {@code null} when no vector store is declared (the
+     * {@link AbstractVectorStore} sentinel default). A declared store requires an embedding model, so its
+     * absence is a configuration error rather than a silent fallback.
      */
-    private AbstractConversationStore resolveConversationStore(Class<?> storeClass) {
-        Object managed = sproutContainer.getOrCreateByType(storeClass);
-        if (managed instanceof AbstractConversationStore store) {
-            return store;
+    private Retriever resolveRetriever(Agent agent) {
+        if (agent.vectorStore() == AbstractVectorStore.class) {
+            return null;
+        }
+        if (agent.embeddingModel() == EmbeddingModel.class) {
+            throw new IllegalStateException("@Agent " + component + " declares vectorStore " + agent.vectorStore()
+                    + " but no embeddingModel; set @Agent(embeddingModel = ...)");
+        }
+        AbstractVectorStore store = resolveCollaborator(agent.vectorStore(), AbstractVectorStore.class, "vector store");
+        EmbeddingModel embedding = resolveCollaborator(agent.embeddingModel(), EmbeddingModel.class, "embedding model");
+        return new Retriever(embedding, store, agent.retrievalTopK());
+    }
+
+    /**
+     * Resolves a collaborator the agent references by type. If the declared type is a managed bean (a
+     * Sprout component or a bean from an embedding container such as Spring), that instance is used — so
+     * the collaborator can have its own dependencies injected (e.g. a JPA repository, or a vector store
+     * shared with indexing code). Otherwise it is created via its no-arg constructor, which is enough for
+     * the in-memory defaults.
+     */
+    private <T> T resolveCollaborator(Class<?> declared, Class<T> type, String what) {
+        Object managed = sproutContainer.getOrCreateByType(declared);
+        if (type.isInstance(managed)) {
+            return type.cast(managed);
         }
         try {
-            return (AbstractConversationStore) storeClass.getDeclaredConstructors()[0].newInstance();
+            return type.cast(declared.getDeclaredConstructors()[0].newInstance());
         } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException("Sprout: failed creating conversation store " + storeClass, e);
+            throw new IllegalStateException("Sprout: failed creating " + what + " " + declared, e);
         }
     }
 

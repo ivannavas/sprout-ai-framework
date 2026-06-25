@@ -11,6 +11,7 @@ one classpath:
 | `io.github.ivannavas.sprout.example.basic` | Plain Java app backed by the Anthropic model, then orchestrating concurrent agent runs | `mvn -pl sprout-examples -am exec:exec` |
 | `io.github.ivannavas.sprout.example.mcp` | An MCP server exposed from `@Tool` methods and an agent that connects to it as a client | `mvn -pl sprout-examples -am -Pmcp exec:exec` |
 | `io.github.ivannavas.sprout.example.orchestration` | A tour of `sprout-orchestration`: concurrent runs, supervisor delegation and conversation hand-off, sharing one cast of agents | `mvn -pl sprout-examples -am -Porchestration exec:exec` |
+| `io.github.ivannavas.sprout.example.rag` | RAG end to end: an agent answers from a knowledge base indexed into the built-in vector store | `mvn -pl sprout-examples -am -Prag exec:exec` |
 | `io.github.ivannavas.sprout.example.spring` | End-to-end Spring Boot web app using `sprout-spring-boot-starter`, with a concurrent batch endpoint | `mvn -pl sprout-examples spring-boot:run` |
 
 > **Why packages, not modules?** Sprout scans for components under the entry point's package (or
@@ -82,6 +83,48 @@ Expected output:
   What is 12 plus 30?
     path:   triage -> supervisor (supervisor delegates internally)
     answer: 12 plus 30 is 42.
+```
+
+## rag
+
+`RagExampleApplication` shows **retrieval-augmented generation** end to end, reusing the two RAG
+building blocks shipped in `sprout-core`. At startup a `KnowledgeBaseService` indexes a few documents;
+then `DocsAgent` answers questions by retrieving the relevant ones and feeding them to its model. It
+uses a deterministic offline model, so no API key is needed:
+
+```bash
+mvn -pl sprout-examples -am -Prag exec:exec
+```
+
+How the pieces fit:
+
+1. **One shared store.** `DocsAgent` declares `@Agent(vectorStore = InMemoryVectorStore.class,
+   embeddingModel = HashingEmbeddingModel.class, retrievalTopK = 2)` — `sprout-core`'s built-in
+   defaults. `KnowledgeBaseService` constructor-injects the *same* two singletons and wraps them in a
+   `Retriever` to index documents. Because the store is a shared managed bean, what the service indexes
+   is what the agent finds. This is the usual RAG split: ingestion is one concern, querying another.
+2. **Retrieval per turn.** Before each turn the agent embeds the question, pulls the closest passages
+   from the store and prepends them to the prompt; the original question is what gets persisted, so a
+   reloaded conversation never carries stale context. `KnowledgeBaseModel` then answers from the
+   top-ranked passage, proving the retrieved text reached the model.
+3. **Scan path.** The `rag` profile sets `sprout.scan.base-packages` to this example's package **plus**
+   `io.github.ivannavas.sprout.impl`, so `InMemoryVectorStore` and `HashingEmbeddingModel` are
+   registered as managed singletons and can be shared. For real use, supply your own
+   `@VectorStore`/`@Embedding` beans (a vector database, a provider-backed embedding model) and name
+   those in `@Agent` instead.
+
+The built-in `HashingEmbeddingModel` matches on shared words, not meaning, which is enough for this
+offline demo; for production-quality retrieval swap in a semantic embedding model — e.g.
+`OpenaiEmbeddingModel` from `sprout-openai` — by naming it in `@Agent(embeddingModel = ...)`. Expected output:
+
+```
+== RAG: agent answers from an indexed knowledge base ==
+  What does Sprout use dependency injection for?
+    -> Based on the knowledge base: Sprout is a dependency injection framework for building AI agents in Java, using annotations such as Agent, Model and Service.
+  How does an agent retrieve relevant documents?
+    -> Based on the knowledge base: An agent enables RAG by declaring a vector store and an embedding model, then it retrieves the most relevant documents and adds them to the prompt before every turn.
+  What vector store and embedding model does Sprout ship by default?
+    -> Based on the knowledge base: By default Sprout ships an in memory vector store that ranks documents by cosine similarity, and a hashing embedding model that turns text into vectors without any API key, so retrieval runs offline.
 ```
 
 ## spring

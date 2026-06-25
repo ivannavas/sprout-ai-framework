@@ -83,6 +83,7 @@ class AgentUsesMcpTest {
         AgentData agentData = new AgentData(
                 new ToolThenAnswerModel(),
                 new InMemoryConversationStore(),
+                null,
                 "",
                 4,
                 Map.of());

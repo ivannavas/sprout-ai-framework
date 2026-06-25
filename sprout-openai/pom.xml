@@ -11,7 +11,7 @@
 
     <artifactId>sprout-openai</artifactId>
     <name>Sprout OpenAI</name>
-    <description>ModelExecutor for OpenAI's Chat Completions API, registered as the @Model("openai") provider.</description>
+    <description>OpenAI provider for Sprout: a ModelExecutor for the Chat Completions API (@Model("openai")) and an EmbeddingModel for the embeddings API (@Embedding).</description>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

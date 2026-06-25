@@ -74,7 +74,7 @@ class AgentDelegationTest {
     @Test
     void supervisorDelegatesAndComposesFinalAnswer() {
         AgentExecutor supervisor = new AgentExecutor();
-        supervisor.configure(new AgentData(new RoutingModel(), new InMemoryConversationStore(), "", 4, Map.of()));
+        supervisor.configure(new AgentData(new RoutingModel(), new InMemoryConversationStore(), null, "", 4, Map.of()));
 
         AgentDelegation.builder()
                 .specialist("math", "Solves arithmetic", echoAgent("solved: "))

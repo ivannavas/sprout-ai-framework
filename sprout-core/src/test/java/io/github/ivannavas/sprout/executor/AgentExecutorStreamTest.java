@@ -62,7 +62,7 @@ class AgentExecutorStreamTest {
         Method echo = EchoAgent.class.getMethod("echo", String.class);
         echo.setAccessible(true);
         EchoAgent agent = new EchoAgent();
-        agent.configure(new AgentData(model, new InMemoryConversationStore(), "", 3, Map.of("echo", echo)));
+        agent.configure(new AgentData(model, new InMemoryConversationStore(), null, "", 3, Map.of("echo", echo)));
         return agent;
     }
 

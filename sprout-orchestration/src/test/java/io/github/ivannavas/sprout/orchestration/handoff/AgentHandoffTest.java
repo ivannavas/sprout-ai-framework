@@ -31,7 +31,7 @@ class AgentHandoffTest {
 
     private AgentExecutor agentWith(ModelExecutor model, String systemPrompt) {
         AgentExecutor agent = new AgentExecutor();
-        agent.configure(new AgentData(model, store, systemPrompt, 4, Map.of()));
+        agent.configure(new AgentData(model, store, null, systemPrompt, 4, Map.of()));
         return agent;
     }
 

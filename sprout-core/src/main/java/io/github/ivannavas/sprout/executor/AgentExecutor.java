@@ -3,6 +3,7 @@ package io.github.ivannavas.sprout.executor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.ivannavas.sprout.annotation.Tool;
 import io.github.ivannavas.sprout.model.*;
+import io.github.ivannavas.sprout.rag.Retriever;
 import io.github.ivannavas.sprout.tool.ToolProvider;
 import io.github.ivannavas.sprout.tool.ToolReflection;
 
@@ -95,8 +96,12 @@ public class AgentExecutor {
         // appended to the store.
         List<Message> newMessages = new ArrayList<>();
         Message userMessage = Message.user(prompt);
-        history.add(userMessage);
         newMessages.add(userMessage);
+
+        // RAG: the model sees the prompt augmented with retrieved context, but the store keeps the
+        // original question — retrieval is redone per turn (like the system prompt, it is applied per run,
+        // not persisted), so a reloaded history never carries stale context forward.
+        history.add(augmentWithRetrieval(userMessage));
 
         List<ToolDefinition> tools = buildToolDefinitions();
         TokenUsage totalUsage = TokenUsage.ZERO;
@@ -126,6 +131,31 @@ public class AgentExecutor {
         agentData.conversationStore().append(conversationId, newMessages);
         throw new IllegalStateException(
                 "Agent exceeded " + agentData.maxIterations() + " iterations without a final answer");
+    }
+
+    /**
+     * Returns the message the model should see for {@code userMessage}: the original when RAG is off, or
+     * one whose text is prefixed with the documents the retriever finds for the prompt. When retrieval
+     * comes back empty the original is used unchanged.
+     */
+    private Message augmentWithRetrieval(Message userMessage) {
+        Retriever retriever = agentData.retriever();
+        if (retriever == null) {
+            return userMessage;
+        }
+        List<SearchResult> retrieved = retriever.retrieve(userMessage.content());
+        if (retrieved.isEmpty()) {
+            return userMessage;
+        }
+        StringBuilder augmented = new StringBuilder(
+                "Use the following retrieved context to answer the question. "
+                        + "If it is not relevant, rely on your own knowledge.\n\nContext:\n");
+        int index = 1;
+        for (SearchResult result : retrieved) {
+            augmented.append('[').append(index++).append("] ").append(result.document().text()).append("\n\n");
+        }
+        augmented.append("Question: ").append(userMessage.content());
+        return Message.user(augmented.toString());
     }
 
     /**
