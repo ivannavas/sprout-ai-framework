@@ -1,6 +1,7 @@
 package io.github.ivannavas.sprout.processor;
 
 import io.github.ivannavas.sprout.abstrct.AbstractConversationStore;
+import io.github.ivannavas.sprout.abstrct.AbstractEventBus;
 import io.github.ivannavas.sprout.abstrct.AbstractVectorStore;
 import io.github.ivannavas.sprout.annotation.Agent;
 import io.github.ivannavas.sprout.annotation.Processor;
@@ -51,8 +52,10 @@ public class AgentProcessor extends ComponentProcessor {
 
         AbstractConversationStore store = resolveCollaborator(agent.conversationStore(),
                 AbstractConversationStore.class, "conversation store");
-        ((AgentExecutor) instance).configure(
+        AgentExecutor executor = (AgentExecutor) instance;
+        executor.configure(
                 AgentData.fromAnnotation(agent, model, store, resolveRetriever(agent), collectToolMethods()));
+        executor.setEventBus((AbstractEventBus) sproutContainer.getOrCreateByType(AbstractEventBus.class));
         sproutContainer.registerSingleton(executorBeanName(component), instance);
 
         return instance;

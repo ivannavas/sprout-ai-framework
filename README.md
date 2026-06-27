@@ -20,15 +20,11 @@ backed by the services you already have. Sprout is also **fully Spring-compatibl
 Spring Boot starter and Sprout and Spring beans inject into each other transparently, in both
 directions.
 
-> **Version `1.2.0`.** Sprout is functional and tested, but it is young: some capabilities are still
-> basic and parts of the API may change. Expect gaps and rough edges, and see
-> [what's coming](#whats-coming) for what's planned next.
-
 ## Modules
 
 | Module | What it provides |
 |---|---|
-| `sprout-core` | IoC container, component scanning, dependency injection, configuration, and the agent/model/tool/RAG abstractions — including a built-in in-memory vector store and embedding model. |
+| `sprout-core` | IoC container, component scanning, dependency injection, configuration, an event bus, and the agent/model/tool/RAG abstractions — including a built-in in-memory vector store and embedding model. |
 | `sprout-anthropic` | `ModelExecutor` for Anthropic's Messages API (`@Model("anthropic")`), plus a Voyage AI `EmbeddingModel` (`@Embedding`) for RAG — the embedding provider Anthropic recommends. |
 | `sprout-openai` | `ModelExecutor` for OpenAI's Chat Completions API (`@Model("openai")`), plus an `EmbeddingModel` (`@Embedding`) for OpenAI's embeddings API. |
 | `sprout-mcp` | Model Context Protocol support: expose `@Tool` methods as an MCP server, and consume remote MCP servers from an agent. |
@@ -67,7 +63,9 @@ Scanning starts from the entry point's package, or from the packages listed in
 
 A model is a `ModelExecutor` subclass annotated with `@Model`. `sprout-anthropic` and `sprout-openai`
 ship implementations; you can add your own (including offline stubs for tests) by extending
-`ModelExecutor` and implementing `chat(ModelRequest)`.
+`ModelExecutor` and implementing `chat(ModelRequest)`. Call `invoke(ModelRequest)` to run a model as an
+observable execution (it wraps `chat` with the model lifecycle [events](#events)); the agent loop uses
+it, so an agent's model calls are observed automatically.
 
 Being a component, the model is a managed singleton you inject like any other bean — by type
 (`ModelExecutor`) or by name with `@Qualifier`. The bean name is the class name in camelCase plus the
@@ -267,6 +265,53 @@ swap in a provider-backed embedding model — `OpenaiEmbeddingModel` (`sprout-op
 embeddings) — by naming it in `@Agent(embeddingModel = ...)`. RAG stays opt-in: an agent that declares
 no vector store does no retrieval. See the runnable [RAG example](sprout-examples/README.md).
 
+### Events
+
+Sprout has a lightweight **event bus** for observing what agents and models do, without coupling the
+observer to the agent. Inject the `AbstractEventBus` (or reach it via `container.eventBus()`) and
+subscribe to the events you care about; the agent loop publishes a prefab set as it runs:
+
+- `AgentStartedEvent` / `AgentCompletedEvent` / `AgentFailedEvent` — the run's boundaries (the last
+  carries the `AgentResult`, or the error).
+- `ModelRequestEvent` / `ModelResponseEvent` — published by the model around a call made through
+  `ModelExecutor.invoke(...)`. The agent loop uses `invoke`, so they fire during agent runs and from a
+  **standalone `model.invoke(...)`** alike (a raw `chat(...)` call stays event-free).
+- `ToolCalledEvent` — each tool the model invoked, paired with its result.
+
+```java
+SproutContainer container = SproutApplication.run(MyApp.class);
+AbstractEventBus events = container.eventBus();
+
+// Subscribe to one event type...
+events.subscribe(ModelResponseEvent.class, e ->
+        System.out.println(e.modelName() + " produced " + e.response().usage().outputTokens() + " tokens"));
+
+// ...or to Event.class to observe everything that flows through the bus.
+events.subscribe(Event.class, e -> log.debug("event: {}", e));
+```
+
+`Event` is just an interface, so an application or module can **define and publish its own events**
+through the same bus — from inside an agent (subclasses get a `publish(Event)` helper) or from any
+component that injects the bus:
+
+```java
+public record OrderPlaced(String orderId, Instant occurredAt) implements Event {
+    public OrderPlaced(String orderId) { this(orderId, Instant.now()); }
+}
+eventBus.publish(new OrderPlaced("A-123"));
+```
+
+The default `InMemoryEventBus` delivers events synchronously and in-process. To fan events across
+services, implement `AbstractEventBus` over Redis pub/sub, Kafka or a broker and mark it `@EventBus`;
+that bean replaces the default everywhere it is injected, with no change to publishers or subscribers.
+
+**Under Spring Boot, the bus is bridged to Spring's event system both ways** (see the
+[starter README](sprout-spring-boot-starter/README.md)): a Sprout event published on the bus is
+re-published through Spring so a `@EventListener` can handle it, and a Sprout `Event` published with
+Spring's `ApplicationEventPublisher` is forwarded onto the bus to reach Sprout subscribers — so the
+agent half and the Spring half of an app can react to each other's events without knowing which side
+raised them.
+
 ### MCP
 
 With `sprout-mcp` on the classpath, an `@Mcp` bean's `@Tool` methods are published over the Model
@@ -377,6 +422,7 @@ mvn package
 | mcp | Publish `@Tool` methods as an MCP server and consume them from a client agent | `mvn -pl sprout-examples -am -Pmcp exec:exec` |
 | orchestration | Concurrent runs, supervisor **delegation** and conversation **hand-off** — one cast of agents | `mvn -pl sprout-examples -am -Porchestration exec:exec` |
 | rag | **Retrieval-augmented generation** — an agent answers from a knowledge base indexed into the built-in vector store | `mvn -pl sprout-examples -am -Prag exec:exec` |
+| events | **Event bus** — subscribe to an agent run's prefab lifecycle events as they happen | `mvn -pl sprout-examples -am -Pevents exec:exec` |
 | **spring** | **Spring + orchestration together** — see below | `mvn -pl sprout-examples -am spring-boot:run` |
 
 > **The headline — Spring + orchestration in one request.** The Spring example's `/weather/batch`
@@ -419,7 +465,9 @@ This is the first release, so the surface is deliberately focused. The list belo
 - **Richer RAG.** Core RAG has shipped — per-agent retrieval, an in-memory vector store and
   lexical/semantic embedding models; next are persistent vector-store modules (e.g. pgvector, Redis),
   document loaders and chunking, and conversational memory.
-- **Observability.** Tracing, metrics and token/cost accounting hooks around the agent loop.
+- **Observability.** An event bus already publishes the agent/model/tool lifecycle (and takes custom
+  events); next are tracing, metrics and token/cost accounting built on it, plus distributed event-bus
+  modules (Redis pub/sub, Kafka).
 - **Structured output.** Schema-constrained model output mapped to typed Java objects.
 - **Automatic exposure layers.** Generate a REST/SSE (and possibly gRPC) endpoint per agent.
 - **Human-in-the-loop.** Approval/guardrail hooks before tool calls execute.

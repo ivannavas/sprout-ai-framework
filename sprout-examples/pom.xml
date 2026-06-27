@@ -114,6 +114,7 @@
         mcp:             mvn -pl sprout-examples -am -Pmcp exec:exec
         orchestration:   mvn -pl sprout-examples -am -Porchestration exec:exec
         rag:             mvn -pl sprout-examples -am -Prag exec:exec
+        events:          mvn -pl sprout-examples -am -Pevents exec:exec
     -->
     <profiles>
         <profile>
@@ -195,6 +196,27 @@
                                 <argument>-classpath</argument>
                                 <classpath/>
                                 <argument>io.github.ivannavas.sprout.example.rag.RagExampleApplication</argument>
+                            </arguments>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>events</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.2.0</version>
+                        <configuration>
+                            <executable>${java.home}/bin/java</executable>
+                            <arguments>
+                                <argument>-Dsprout.scan.base-packages=io.github.ivannavas.sprout.example.events</argument>
+                                <argument>-classpath</argument>
+                                <classpath/>
+                                <argument>io.github.ivannavas.sprout.example.events.EventsExampleApplication</argument>
                             </arguments>
                         </configuration>
                     </plugin>

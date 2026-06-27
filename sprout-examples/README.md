@@ -12,6 +12,7 @@ one classpath:
 | `io.github.ivannavas.sprout.example.mcp` | An MCP server exposed from `@Tool` methods and an agent that connects to it as a client | `mvn -pl sprout-examples -am -Pmcp exec:exec` |
 | `io.github.ivannavas.sprout.example.orchestration` | A tour of `sprout-orchestration`: concurrent runs, supervisor delegation and conversation hand-off, sharing one cast of agents | `mvn -pl sprout-examples -am -Porchestration exec:exec` |
 | `io.github.ivannavas.sprout.example.rag` | RAG end to end: an agent answers from a knowledge base indexed into the built-in vector store | `mvn -pl sprout-examples -am -Prag exec:exec` |
+| `io.github.ivannavas.sprout.example.events` | Observe an agent run through the event bus — subscribe to the prefab lifecycle events | `mvn -pl sprout-examples -am -Pevents exec:exec` |
 | `io.github.ivannavas.sprout.example.spring` | End-to-end Spring Boot web app using `sprout-spring-boot-starter`, with a concurrent batch endpoint | `mvn -pl sprout-examples spring-boot:run` |
 
 > **Why packages, not modules?** Sprout scans for components under the entry point's package (or
@@ -126,6 +127,39 @@ offline demo; for production-quality retrieval swap in a semantic embedding mode
   What vector store and embedding model does Sprout ship by default?
     -> Based on the knowledge base: By default Sprout ships an in memory vector store that ranks documents by cosine similarity, and a hashing embedding model that turns text into vectors without any API key, so retrieval runs offline.
 ```
+
+## events
+
+`EventsExampleApplication` observes an agent run through Sprout's **event bus**, fully offline. The
+container auto-registers the default `InMemoryEventBus`; the example obtains it with
+`container.eventBus()`, subscribes one catch-all `Event.class` listener (a `switch` over the event
+types), then runs `WeatherAgent` (backed by a deterministic stub model). As the loop runs it publishes
+the prefab lifecycle events, and the listener prints them in publish order:
+
+```bash
+mvn -pl sprout-examples -am -Pevents exec:exec
+```
+
+Expected output:
+
+```
+== Events: observing an agent run through the bus ==
+  AgentStartedEvent -> WeatherAgent started: "What's the weather in Madrid?"
+  ModelRequestEvent
+  ModelResponseEvent -> WeatherStubModel produced 8 output tokens
+  ToolCalledEvent -> tool forecast returned "Sunny, 25°C in Madrid"
+  ModelRequestEvent
+  ModelResponseEvent -> WeatherStubModel produced 12 output tokens
+  AgentCompletedEvent -> finished in 2 iteration(s)
+Answer: Here is your forecast: "Sunny, 25°C in Madrid"
+```
+
+The `ModelRequestEvent`/`ModelResponseEvent` come from the model: the agent loop runs it through
+`ModelExecutor.invoke(...)`, and calling `model.invoke(...)` yourself emits them with no agent involved.
+The default bus delivers synchronously, in-process. Implement
+`AbstractEventBus` over Redis pub/sub, Kafka or a broker and mark it `@EventBus` to fan the same events
+across services, with no change to publishers or subscribers — and any component (or an agent subclass,
+via its `publish(Event)` helper) can define and emit its own `Event` types on the same bus.
 
 ## spring
 

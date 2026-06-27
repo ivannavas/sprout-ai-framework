@@ -4,8 +4,10 @@ import io.github.ivannavas.sprout.container.SproutContainer;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.ConfigurableEnvironment;
 
@@ -28,5 +30,15 @@ public class SproutAutoConfiguration {
     @Bean
     DisposableBean sproutContainerShutdown(SproutContainer sproutContainer) {
         return sproutContainer::shutdown;
+    }
+
+    // Bridges Sprout events and Spring's application-event system both ways, so @EventListener beans see
+    // Sprout events and Sprout subscribers see Spring-published ones. The bus comes from the container
+    // (it is also exposed as the "eventBus" bean) rather than being injected by type, to stay
+    // unambiguous when a custom @EventBus carries its own name too.
+    @Bean
+    @ConditionalOnMissingBean
+    SpringEventBridge sproutSpringEventBridge(SproutContainer sproutContainer, ApplicationEventPublisher publisher) {
+        return new SpringEventBridge(sproutContainer.eventBus(), publisher);
     }
 }

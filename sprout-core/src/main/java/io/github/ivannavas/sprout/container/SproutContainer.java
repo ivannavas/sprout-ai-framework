@@ -1,7 +1,9 @@
 package io.github.ivannavas.sprout.container;
 
+import io.github.ivannavas.sprout.abstrct.AbstractEventBus;
 import io.github.ivannavas.sprout.config.PropertiesLoader;
 import io.github.ivannavas.sprout.config.PropertyResolver;
+import io.github.ivannavas.sprout.impl.InMemoryEventBus;
 import io.github.ivannavas.sprout.processor.ComponentProcessor;
 import io.github.ivannavas.sprout.scanner.ComponentScanner;
 import io.github.ivannavas.sprout.scanner.ProcessorScanner;
@@ -70,6 +72,8 @@ public final class SproutContainer {
             processorsByClass.put(clazz, processors);
         }
 
+        registerEventBus(components);
+
         for (Class<?> clazz : components) {
             getOrCreate(clazz);
         }
@@ -98,6 +102,40 @@ public final class SproutContainer {
      */
     public void onReady(Runnable callback) {
         readyCallbacks.add(callback);
+    }
+
+    /**
+     * The application's event bus. A scanned {@link io.github.ivannavas.sprout.annotation.EventBus @EventBus}
+     * component (e.g. a Redis- or Kafka-backed one) is used when present; otherwise the default
+     * {@link InMemoryEventBus}. Subscribe to it to observe the prefab agent/model lifecycle events, or
+     * publish your own {@link io.github.ivannavas.sprout.event.Event}s.
+     */
+    public AbstractEventBus eventBus() {
+        return getSingleton(AbstractEventBus.class);
+    }
+
+    // Resolves the single event bus and registers it under AbstractEventBus, so it is available for
+    // injection by type and shared by every agent. A user-supplied @EventBus component (already scanned
+    // into the component set) wins over the in-memory default; the default is otherwise instantiated
+    // directly because core's impl package is not part of the application's scanned packages. Mapped by
+    // type plus the single canonical name "eventBus" (not the derived "abstractEventBus"), so an
+    // embedding container such as Spring exposes one unambiguous bean.
+    private void registerEventBus(List<Class<?>> components) {
+        Class<?> custom = null;
+        for (Class<?> clazz : components) {
+            if (AbstractEventBus.class.isAssignableFrom(clazz)) {
+                if (custom != null) {
+                    throw new IllegalStateException("Sprout: multiple @EventBus components found ("
+                            + custom + ", " + clazz + "); declare only one");
+                }
+                custom = clazz;
+            }
+        }
+        AbstractEventBus bus = custom != null
+                ? (AbstractEventBus) getOrCreate(custom)
+                : new InMemoryEventBus();
+        singletons.put(AbstractEventBus.class, bus);
+        singletonsByName.put("eventBus", bus);
     }
 
     private List<String> resolveScanPackages() {

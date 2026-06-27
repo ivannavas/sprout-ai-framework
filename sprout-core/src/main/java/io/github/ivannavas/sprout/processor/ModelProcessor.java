@@ -1,5 +1,6 @@
 package io.github.ivannavas.sprout.processor;
 
+import io.github.ivannavas.sprout.abstrct.AbstractEventBus;
 import io.github.ivannavas.sprout.annotation.Model;
 import io.github.ivannavas.sprout.annotation.Processor;
 import io.github.ivannavas.sprout.container.SproutContainer;
@@ -25,6 +26,14 @@ public class ModelProcessor extends ComponentProcessor {
         if (!ModelExecutor.class.isAssignableFrom(component)) {
             throw new IllegalArgumentException("@Model " + component + " must extend ModelExecutor");
         }
+    }
+
+    @Override
+    public Object instantiate() {
+        Object instance = super.instantiate();
+        ((ModelExecutor) instance).setEventBus(
+                (AbstractEventBus) sproutContainer.getOrCreateByType(AbstractEventBus.class));
+        return instance;
     }
 
     @Override

@@ -1,7 +1,13 @@
 package io.github.ivannavas.sprout.executor;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.ivannavas.sprout.abstrct.AbstractEventBus;
 import io.github.ivannavas.sprout.annotation.Tool;
+import io.github.ivannavas.sprout.event.AgentCompletedEvent;
+import io.github.ivannavas.sprout.event.AgentFailedEvent;
+import io.github.ivannavas.sprout.event.AgentStartedEvent;
+import io.github.ivannavas.sprout.event.Event;
+import io.github.ivannavas.sprout.event.ToolCalledEvent;
 import io.github.ivannavas.sprout.model.*;
 import io.github.ivannavas.sprout.rag.Retriever;
 import io.github.ivannavas.sprout.tool.ToolProvider;
@@ -34,6 +40,7 @@ public class AgentExecutor {
     private static final ObjectMapper json = new ObjectMapper();
 
     private AgentData agentData;
+    private AbstractEventBus eventBus;
     private final List<ToolProvider> toolProviders = new ArrayList<>();
     private Map<String, ToolProvider> providerByTool;
 
@@ -43,6 +50,25 @@ public class AgentExecutor {
      */
     public void configure(AgentData agentData) {
         this.agentData = agentData;
+    }
+
+    /**
+     * Supplies the {@link AbstractEventBus} the run publishes lifecycle events to. Wired by the
+     * container during startup; when unset (e.g. an agent constructed directly in a test) the agent
+     * still runs and simply emits nothing.
+     */
+    public void setEventBus(AbstractEventBus eventBus) {
+        this.eventBus = eventBus;
+    }
+
+    /**
+     * Publishes {@code event} to the bus, or does nothing when no bus is wired. Exposed so subclasses
+     * that override the loop can emit their own {@link Event}s.
+     */
+    protected final void publish(Event event) {
+        if (eventBus != null) {
+            eventBus.publish(event);
+        }
     }
 
     /**
@@ -76,6 +102,19 @@ public class AgentExecutor {
     }
 
     private AgentResult run(String conversationId, String prompt, StreamListener listener) {
+        String agentName = getClass().getSimpleName();
+        publish(new AgentStartedEvent(agentName, conversationId, prompt));
+        try {
+            AgentResult result = runLoop(conversationId, prompt, listener, agentName);
+            publish(new AgentCompletedEvent(agentName, conversationId, result));
+            return result;
+        } catch (RuntimeException e) {
+            publish(new AgentFailedEvent(agentName, conversationId, e));
+            throw e;
+        }
+    }
+
+    private AgentResult runLoop(String conversationId, String prompt, StreamListener listener, String agentName) {
         List<Message> history = new ArrayList<>();
 
         // Apply this agent's own system prompt at the head of every run rather than persisting it once.
@@ -107,6 +146,8 @@ public class AgentExecutor {
         TokenUsage totalUsage = TokenUsage.ZERO;
 
         for (int iteration = 1; iteration <= agentData.maxIterations(); iteration++) {
+            // The model publishes its own ModelRequestEvent/ModelResponseEvent around this call, so the
+            // loop only emits the agent- and tool-level events the model cannot see.
             ModelResponse response = callModel(new ModelRequest(List.copyOf(history), tools), listener);
 
             totalUsage = totalUsage.plus(response.usage());
@@ -122,7 +163,9 @@ public class AgentExecutor {
             }
 
             for (ToolCall call : response.message().toolCalls()) {
-                Message toolMessage = Message.tool(dispatch(call));
+                ToolResult result = dispatch(call);
+                publish(new ToolCalledEvent(agentName, conversationId, call, result));
+                Message toolMessage = Message.tool(result);
                 history.add(toolMessage);
                 newMessages.add(toolMessage);
             }
@@ -159,13 +202,14 @@ public class AgentExecutor {
     }
 
     /**
-     * One model call. Without a listener this is a plain blocking {@code chat}; with one it goes
+     * One model call. Without a listener this is a plain blocking {@code invoke}; with one it goes
      * through {@code chatStream}, forwarding tokens and tool calls as they arrive while capturing the
-     * final response to drive the loop.
+     * final response to drive the loop. Either way it goes through {@code invoke}, so the model emits
+     * its request/response events.
      */
     private ModelResponse callModel(ModelRequest request, StreamListener listener) {
         if (listener == null) {
-            return agentData.model().chat(request);
+            return agentData.model().invoke(request);
         }
         AtomicReference<ModelResponse> response = new AtomicReference<>();
         AtomicReference<Throwable> failure = new AtomicReference<>();

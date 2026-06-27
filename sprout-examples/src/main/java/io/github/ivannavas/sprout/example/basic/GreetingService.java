@@ -20,7 +20,9 @@ public class GreetingService {
     }
 
     public String greet(String name) {
-        return modelExecutor.chat(new ModelRequest(List.of(Message.user("Say hello to " + name))))
+        // invoke (rather than chat) so this agent-less model call still publishes its request/response
+        // events to the bus.
+        return modelExecutor.invoke(new ModelRequest(List.of(Message.user("Say hello to " + name))))
                 .message()
                 .content();
     }
