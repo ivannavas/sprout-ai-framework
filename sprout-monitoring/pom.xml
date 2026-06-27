@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>io.github.ivannavas</groupId>
+        <artifactId>sprout-ai-framework</artifactId>
+        <version>1.2.0</version>
+    </parent>
+
+    <artifactId>sprout-monitoring</artifactId>
+
+    <name>Sprout Monitoring</name>
+    <description>Usage, token and cost monitoring for Sprout agents and models, built on the event bus.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.github.ivannavas</groupId>
+            <artifactId>sprout-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+</project>

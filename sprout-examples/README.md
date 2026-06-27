@@ -13,6 +13,7 @@ one classpath:
 | `io.github.ivannavas.sprout.example.orchestration` | A tour of `sprout-orchestration`: concurrent runs, supervisor delegation and conversation hand-off, sharing one cast of agents | `mvn -pl sprout-examples -am -Porchestration exec:exec` |
 | `io.github.ivannavas.sprout.example.rag` | RAG end to end: an agent answers from a knowledge base indexed into the built-in vector store | `mvn -pl sprout-examples -am -Prag exec:exec` |
 | `io.github.ivannavas.sprout.example.events` | Observe an agent run through the event bus — subscribe to the prefab lifecycle events | `mvn -pl sprout-examples -am -Pevents exec:exec` |
+| `io.github.ivannavas.sprout.example.monitoring` | Track usage, tokens and cost across agent runs with `sprout-monitoring`, then print the report | `mvn -pl sprout-examples -am -Pmonitoring exec:exec` |
 | `io.github.ivannavas.sprout.example.spring` | End-to-end Spring Boot web app using `sprout-spring-boot-starter`, with a concurrent batch endpoint | `mvn -pl sprout-examples spring-boot:run` |
 
 > **Why packages, not modules?** Sprout scans for components under the entry point's package (or
@@ -160,6 +161,38 @@ The default bus delivers synchronously, in-process. Implement
 `AbstractEventBus` over Redis pub/sub, Kafka or a broker and mark it `@EventBus` to fan the same events
 across services, with no change to publishers or subscribers — and any component (or an agent subclass,
 via its `publish(Event)` helper) can define and emit its own `Event` types on the same bus.
+
+## monitoring
+
+`MonitoringExampleApplication` shows **`sprout-monitoring`** working, fully offline. Monitoring's
+`@UsageStore` is wired by a processor like any other component: the app puts the module's in-memory store
+package (`io.github.ivannavas.sprout.monitoring.impl`) on its component scan, so the default store is
+registered and its processor subscribes a collector to the event bus. The app runs `WeatherAgent` for
+three cities, then reads `container.getSingleton("usageStore").snapshot()` and prints the per-model,
+per-agent and per-tool breakdown with costs:
+
+```bash
+mvn -pl sprout-examples -am -Pmonitoring exec:exec
+```
+
+Costs come from a rate the app sets before bootstrapping (`sprout.monitoring.pricing.WeatherStubModel.*`,
+priced per one million tokens); in a real app these live in `sprout.properties`, and an unpriced model
+simply reports zero cost. Expected output:
+
+```
+== Monitoring: usage, tokens and cost across agent runs ==
+Models:
+  WeatherStubModel: 6 calls, 297 in + 60 out tokens, $0.001791
+Agents:
+  WeatherAgent: 3 runs (3 ok / 0 failed), 6 iterations, 357 tokens
+Tools:
+  forecast: 3 calls
+Totals: 6 model calls, 357 tokens, $0.001791
+```
+
+Each run makes two model calls (the tool request and the final answer), so three runs total six calls.
+To persist usage instead of holding it in memory, implement `AbstractUsageStore`, mark it `@UsageStore`
+and let it be scanned in your own package; its processor registers it in place of the default.
 
 ## spring
 

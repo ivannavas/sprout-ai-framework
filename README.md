@@ -29,8 +29,9 @@ directions.
 | `sprout-openai` | `ModelExecutor` for OpenAI's Chat Completions API (`@Model("openai")`), plus an `EmbeddingModel` (`@Embedding`) for OpenAI's embeddings API. |
 | `sprout-mcp` | Model Context Protocol support: expose `@Tool` methods as an MCP server, and consume remote MCP servers from an agent. |
 | `sprout-orchestration` | Run agent prompts concurrently, let a supervisor delegate subtasks to specialist agents, and hand a conversation off between agents. |
+| `sprout-monitoring` | Tracks agent/model usage, tokens and cost off the event bus, into a swappable `@UsageStore` component (in-memory default). Scan its store package, or declare your own `@UsageStore`. |
 | `sprout-spring-boot-starter` | Runs Sprout inside Spring Boot, bridging beans and configuration both ways. See its [README](sprout-spring-boot-starter/README.md). |
-| `sprout-examples` | Runnable examples (basic, MCP, orchestration, RAG, Spring). See its [README](sprout-examples/README.md). |
+| `sprout-examples` | Runnable examples (basic, MCP, orchestration, RAG, events, monitoring, Spring). See its [README](sprout-examples/README.md). |
 
 ## Requirements
 
@@ -312,6 +313,36 @@ Spring's `ApplicationEventPublisher` is forwarded onto the bus to reach Sprout s
 agent half and the Spring half of an app can react to each other's events without knowing which side
 raised them.
 
+### Monitoring
+
+`sprout-monitoring` turns the event stream above into **usage, token and cost totals** — per model,
+per agent and per tool — with no change to your agents. It adds a `@UsageStore` component, wired by its
+own `@Processor` like `@Model` or `@ConversationStore`: the processor registers the store (under the name
+`usageStore`) and subscribes a collector to the event bus, so every execution is folded in. The shipped
+`InMemoryUsageStore` is the in-memory default — put its package on your component scan to use it (the same
+way the [RAG example](sprout-examples/README.md) pulls in core's in-memory vector store):
+
+```properties
+sprout.scan.base-packages=com.example.app,io.github.ivannavas.sprout.monitoring.impl
+```
+
+To persist usage instead, implement `AbstractUsageStore`, mark it `@UsageStore` and let it be scanned in
+your own package; that bean is the store, with nothing else changing (the same swap-the-component model as
+`@EventBus` and `@ConversationStore`). Then read the totals anywhere:
+
+```java
+UsageSnapshot usage = container.<AbstractUsageStore>getSingleton("usageStore").snapshot();
+System.out.println(usage.modelCalls() + " calls, " + usage.totalTokens() + " tokens, $" + usage.totalCost());
+usage.byAgent().get("WeatherAgent");   // runs (completed/failed), iterations, tokens
+usage.byTool().get("forecast");        // call count
+```
+
+Costs are derived from rates you configure per model — properties of the form
+`sprout.monitoring.pricing.<modelName>.input` / `.output`, each a price per **one million** tokens. An
+unpriced model still has its tokens tracked, at zero cost. Because the store is a managed singleton named
+`usageStore`, under the Spring Boot starter it is exposed as a Spring bean automatically. See
+[sprout-examples](sprout-examples/README.md) for a runnable report.
+
 ### MCP
 
 With `sprout-mcp` on the classpath, an `@Mcp` bean's `@Tool` methods are published over the Model
@@ -465,9 +496,10 @@ This is the first release, so the surface is deliberately focused. The list belo
 - **Richer RAG.** Core RAG has shipped — per-agent retrieval, an in-memory vector store and
   lexical/semantic embedding models; next are persistent vector-store modules (e.g. pgvector, Redis),
   document loaders and chunking, and conversational memory.
-- **Observability.** An event bus already publishes the agent/model/tool lifecycle (and takes custom
-  events); next are tracing, metrics and token/cost accounting built on it, plus distributed event-bus
-  modules (Redis pub/sub, Kafka).
+- **Observability.** An event bus publishes the agent/model/tool lifecycle (and takes custom events),
+  and `sprout-monitoring` already accumulates usage, token and cost totals on top of it; next are
+  tracing and richer metrics backends (e.g. a Micrometer/Prometheus `@UsageStore`), plus distributed
+  event-bus modules (Redis pub/sub, Kafka).
 - **Structured output.** Schema-constrained model output mapped to typed Java objects.
 - **Automatic exposure layers.** Generate a REST/SSE (and possibly gRPC) endpoint per agent.
 - **Human-in-the-loop.** Approval/guardrail hooks before tool calls execute.

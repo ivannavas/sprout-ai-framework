@@ -44,6 +44,7 @@
         <module>sprout-mcp</module>
         <module>sprout-spring-boot-starter</module>
         <module>sprout-orchestration</module>
+        <module>sprout-monitoring</module>
     </modules>
 
     <properties>
