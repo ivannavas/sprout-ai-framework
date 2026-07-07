@@ -46,6 +46,11 @@ public class OpenaiModelExecutor extends ModelExecutor {
 
     @Override
     public ModelResponse chat(ModelRequest request) {
+        return chat(modelName, request);
+    }
+
+    @Override
+    public ModelResponse chat(String modelName, ModelRequest request) {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("OpenAI API key is not configured. Set 'openai.api.key' "
                     + "(for example via the OPENAI_API_KEY environment variable).");

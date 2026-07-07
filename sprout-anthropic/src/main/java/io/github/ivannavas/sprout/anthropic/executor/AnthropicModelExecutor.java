@@ -52,6 +52,11 @@ public class AnthropicModelExecutor extends ModelExecutor {
 
     @Override
     public ModelResponse chat(ModelRequest request) {
+        return chat(modelName, request);
+    }
+
+    @Override
+    public ModelResponse chat(String modelName, ModelRequest request) {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("Anthropic API key is not configured. Set 'anthropic.api.key' "
                     + "(for example via the ANTHROPIC_API_KEY environment variable).");

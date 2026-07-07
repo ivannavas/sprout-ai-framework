@@ -66,7 +66,9 @@ A model is a `ModelExecutor` subclass annotated with `@Model`. `sprout-anthropic
 ship implementations; you can add your own (including offline stubs for tests) by extending
 `ModelExecutor` and implementing `chat(ModelRequest)`. Call `invoke(ModelRequest)` to run a model as an
 observable execution (it wraps `chat` with the model lifecycle [events](#events)); the agent loop uses
-it, so an agent's model calls are observed automatically.
+it, so an agent's model calls are observed automatically. `chat`, `invoke` and `chatStream` each take a
+leading `String modelName` overload to target a specific model per call, overriding the one configured
+externally (e.g. `anthropic.model.name`) — the built-in Anthropic and OpenAI executors honour it.
 
 Being a component, the model is a managed singleton you inject like any other bean — by type
 (`ModelExecutor`) or by name with `@Qualifier`. The bean name is the class name in camelCase plus the
