@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Default {@link AbstractConversationStore}: keeps history in memory and is not shared across
  * processes. Safe for concurrent use — an agent is a singleton, so a single store instance is shared
  * by every request that reaches it — but history is lost when the JVM stops; use a persistent store
- * (such as the JPA store in the Spring example) when you need durability.
+ * (such as a JPA-backed store) when you need durability.
  */
 @ConversationStore
 public class InMemoryConversationStore implements AbstractConversationStore {

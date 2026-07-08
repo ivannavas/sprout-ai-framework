@@ -9,8 +9,8 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarInputStream;
 
-// Enumerates class names in a jar, transparently handling Spring Boot's fat-jar layout
-// (BOOT-INF/classes/ plus nested BOOT-INF/lib/*.jar) so scanning works from plain jars and from a
+// Enumerates class names in a jar, transparently handling repackaged fat-jar layouts (classes under
+// BOOT-INF/classes/ plus nested BOOT-INF/lib/*.jar) so scanning works from plain jars and from a
 // repackaged executable jar alike.
 final class JarClassScanner {
 

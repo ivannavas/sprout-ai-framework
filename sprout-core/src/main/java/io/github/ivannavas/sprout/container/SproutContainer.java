@@ -10,23 +10,14 @@ import io.github.ivannavas.sprout.scanner.ProcessorScanner;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Constructor;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.LinkedHashMap;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.logging.Logger;
 
 /**
  * Sprout's IoC container. Scans for components, instantiates them as singletons, performs dependency
  * injection and property resolution, and runs the per-annotation processors that build agents,
  * models and other specialised beans. Obtain one via {@link io.github.ivannavas.sprout.SproutApplication}
- * (or, in a Spring app, the starter) and look beans up with {@link #getSingleton(Class)} /
+ * (or, when embedded, the host framework's starter) and look beans up with {@link #getSingleton(Class)} /
  * {@link #getSingleton(String)}.
  */
 public final class SproutContainer {
@@ -51,8 +42,8 @@ public final class SproutContainer {
 
     public void bootstrap() {
         Map<String, String> loaded = PropertiesLoader.load(mainClass.getClassLoader(), logger);
-        // Properties already present (e.g. seeded by an embedding container such as Spring's
-        // Environment) take precedence over values loaded from sprout.properties.
+        // Properties already present (e.g. seeded from an embedding container's configuration) take
+        // precedence over values loaded from sprout.properties.
         loaded.forEach(configurationProperties::putIfAbsent);
 
         ProcessorScanner processorScanner = new ProcessorScanner(mainClass, logger);
@@ -119,7 +110,7 @@ public final class SproutContainer {
     // into the component set) wins over the in-memory default; the default is otherwise instantiated
     // directly because core's impl package is not part of the application's scanned packages. Mapped by
     // type plus the single canonical name "eventBus" (not the derived "abstractEventBus"), so an
-    // embedding container such as Spring exposes one unambiguous bean.
+    // embedding container exposes one unambiguous bean.
     private void registerEventBus(List<Class<?>> components) {
         Class<?> custom = null;
         for (Class<?> clazz : components) {
@@ -281,7 +272,7 @@ public final class SproutContainer {
 
     /**
      * Snapshot of every managed singleton keyed by bean name. Intended for embedding containers
-     * (e.g. the Spring Boot starter) that want to expose Sprout beans in their own registry.
+     * (e.g. a host framework's starter) that want to expose Sprout beans in their own registry.
      */
     public Map<String, Object> getSingletonsByName() {
         return Map.copyOf(singletonsByName);

@@ -1,7 +1,7 @@
 package io.github.ivannavas.sprout.container;
 
 /**
- * Optional hook that lets an embedding container (such as the Spring Boot starter) supply beans
+ * Optional hook that lets an embedding container (such as a host framework's starter) supply beans
  * that Sprout's own container cannot resolve.
  *
  * <p>It is consulted by {@link SproutContainer} only as a fallback: a dependency is first looked up

@@ -4,8 +4,8 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.function.Function;
 
-// Resolves ${...} placeholders embedded in property values, Spring-style: ${key}, ${key:default},
-// placeholders inside a larger string, and nested/chained references.
+// Resolves ${...} placeholders embedded in property values: ${key}, ${key:default}, placeholders
+// inside a larger string, and nested/chained references.
 public final class PropertyResolver {
 
     private static final String PREFIX = "${";

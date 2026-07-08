@@ -26,6 +26,13 @@ public class SproutAutoConfiguration {
         return new SproutBeanRegistrar(environment);
     }
 
+    // Lets Spring-managed beans wire themselves with Sprout's own DI annotations (the mirror of a
+    // Sprout component using Spring's). static, as befits a BeanPostProcessor definition.
+    @Bean
+    static SproutAnnotationBeanPostProcessor sproutAnnotationBeanPostProcessor() {
+        return new SproutAnnotationBeanPostProcessor();
+    }
+
     // Shuts the Sprout container down when the Spring context closes.
     @Bean
     DisposableBean sproutContainerShutdown(SproutContainer sproutContainer) {

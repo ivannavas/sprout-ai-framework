@@ -1,9 +1,5 @@
 package io.github.ivannavas.sprout.processor;
 
-import io.github.ivannavas.sprout.annotation.Autowired;
-import io.github.ivannavas.sprout.annotation.PostConstruct;
-import io.github.ivannavas.sprout.annotation.Qualifier;
-import io.github.ivannavas.sprout.annotation.Value;
 import io.github.ivannavas.sprout.config.PropertyConverter;
 import io.github.ivannavas.sprout.container.SproutContainer;
 import io.github.ivannavas.sprout.model.ComponentAnnotation;
@@ -50,15 +46,6 @@ public class ComponentProcessor {
         this.componentMethodsByAnnotation = new HashMap<>();
         this.componentFieldsByAnnotation = new HashMap<>();
         this.componentAnnotationsByAnnotation = new HashMap<>();
-
-        putComponentFields(Map.of(
-                Autowired.class, new ComponentField(this::processAutowired),
-                Value.class, new ComponentField(this::processValue)
-        ));
-
-        putComponentMethods(Map.of(
-                PostConstruct.class, new ComponentMethod(method -> processPostConstruct(method, currentInstance))
-        ));
     }
 
     protected final Class<?> component;
@@ -115,7 +102,7 @@ public class ComponentProcessor {
         }
 
         for (Constructor<?> ctor : component.getDeclaredConstructors()) {
-            if (ctor.isAnnotationPresent(Autowired.class)) {
+            if (DiAnnotations.isAutowired(ctor)) {
                 try {
                     Object[] args = resolveConstructorArgs(ctor);
                     ctor.setAccessible(true);
@@ -143,7 +130,7 @@ public class ComponentProcessor {
         for (int i = 0; i < parameters.length; i++) {
             Parameter param = parameters[i];
             args[i] = resolveDependency(
-                    param.getAnnotation(Qualifier.class),
+                    DiAnnotations.qualifier(param),
                     param.getType(),
                     "parameter " + param.getName() + " in constructor of " + ctor.getDeclaringClass());
         }
@@ -164,6 +151,9 @@ public class ComponentProcessor {
                 if (componentMethod != null && componentMethod.consumer() != null) {
                     componentMethod.consumer().accept(method);
                 }
+            }
+            if (DiAnnotations.isPostConstruct(method)) {
+                processPostConstruct(method, currentInstance);
             }
         }
 
@@ -195,6 +185,13 @@ public class ComponentProcessor {
                     componentField.consumer().accept(field);
                 }
             }
+            // Built-in wiring, tolerant of every registered flavour of each annotation (Sprout's own
+            // plus any a bridging module has contributed).
+            if (DiAnnotations.isValueAnnotated(field)) {
+                processValue(field);
+            } else if (DiAnnotations.isAutowired(field)) {
+                processAutowired(field);
+            }
         }
     }
 
@@ -209,22 +206,32 @@ public class ComponentProcessor {
 
     private void processAutowired(Field field) {
         field.setAccessible(true);
+        String qualifier = DiAnnotations.qualifier(field);
+        Object dependency = qualifier != null
+                ? sproutContainer.getOrCreateByName(qualifier)
+                : sproutContainer.getOrCreateByType(field.getType());
+        if (dependency == null) {
+            // An optional dependency (e.g. an @Autowired(required = false) from a bridged framework)
+            // is left unset.
+            if (!DiAnnotations.isRequired(field)) {
+                return;
+            }
+            throw new RuntimeException("Failed to inject @Autowired field: " + field + " - "
+                    + (qualifier != null ? "no bean with qualifier '" + qualifier + "'"
+                                         : "no bean of type " + field.getType().getName()));
+        }
         try {
-            Object dependency = resolveDependency(
-                    field.getAnnotation(Qualifier.class),
-                    field.getType(),
-                    "field: " + field);
             field.set(currentInstance, dependency);
         } catch (Exception e) {
             throw new RuntimeException("Failed to inject @Autowired field: " + field, e);
         }
     }
 
-    private Object resolveDependency(Qualifier qualifier, Class<?> type, String target) {
+    private Object resolveDependency(String qualifier, Class<?> type, String target) {
         if (qualifier != null) {
-            Object dependency = sproutContainer.getOrCreateByName(qualifier.value());
+            Object dependency = sproutContainer.getOrCreateByName(qualifier);
             if (dependency == null) {
-                throw new RuntimeException("No bean found with qualifier '" + qualifier.value() + "' for " + target);
+                throw new RuntimeException("No bean found with qualifier '" + qualifier + "' for " + target);
             }
             return dependency;
         }
@@ -236,7 +243,7 @@ public class ComponentProcessor {
     }
 
     private void processValue(Field field) {
-        String resolved = sproutContainer.resolveExpression(field.getAnnotation(Value.class).value());
+        String resolved = sproutContainer.resolveExpression(DiAnnotations.valueExpression(field));
         field.setAccessible(true);
         try {
             field.set(currentInstance, PropertyConverter.convert(resolved, field.getType()));

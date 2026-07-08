@@ -81,7 +81,7 @@ public class AgentProcessor extends ComponentProcessor {
 
     /**
      * Resolves a collaborator the agent references by type. If the declared type is a managed bean (a
-     * Sprout component or a bean from an embedding container such as Spring), that instance is used — so
+     * Sprout component or a bean from an embedding container), that instance is used — so
      * the collaborator can have its own dependencies injected (e.g. a JPA repository, or a vector store
      * shared with indexing code). Otherwise it is created via its no-arg constructor, which is enough for
      * the in-memory defaults.

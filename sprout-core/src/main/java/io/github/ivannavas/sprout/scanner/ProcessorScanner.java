@@ -95,7 +95,7 @@ public class ProcessorScanner {
             URI uri = clazz.getProtectionDomain().getCodeSource().getLocation().toURI();
             roots.add(new File(uri));
         } catch (Exception e) {
-            // Expected when the code source is a nested URL (e.g. a Spring Boot fat jar); the outer
+            // Expected when the code source is a nested URL (e.g. a repackaged fat jar); the outer
             // jar is already scanned via java.class.path, so this is not fatal.
             logger.log(Level.FINE, "Sprout: cannot locate code source for " + clazz + " - " + e);
         }
