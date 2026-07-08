@@ -20,9 +20,14 @@ import java.util.Map;
 
 /**
  * {@link ModelExecutor} for OpenAI's Chat Completions API, registered under the bean name
- * {@code openai}. Configure {@code openai.api.key} and {@code openai.model.name} (and optionally
- * {@code openai.timeout.seconds} and {@code openai.api.url}). The API key also resolves from the
- * {@code OPENAI_API_KEY} environment variable.
+ * {@code openai}. Configure {@code openai.api.key} (optionally {@code openai.timeout.seconds} and
+ * {@code openai.api.url}); the API key also resolves from the {@code OPENAI_API_KEY} environment
+ * variable.
+ *
+ * <p>The model can be chosen per call via {@link #chat(String, ModelRequest)} /
+ * {@code chatStream(String, ...)}. Configuring {@code openai.model.name} is optional: it only
+ * supplies the default used by the no-arg {@link #chat(ModelRequest)} overload, so it is not
+ * required when every call names its own model.
  */
 @Model("openai")
 public class OpenaiModelExecutor extends ModelExecutor {
@@ -30,7 +35,7 @@ public class OpenaiModelExecutor extends ModelExecutor {
     @Value("${openai.api.key}")
     protected String apiKey;
 
-    @Value("${openai.model.name}")
+    @Value("${openai.model.name:}")
     protected String modelName;
 
     @Value("${openai.timeout.seconds:60}")
@@ -54,6 +59,11 @@ public class OpenaiModelExecutor extends ModelExecutor {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("OpenAI API key is not configured. Set 'openai.api.key' "
                     + "(for example via the OPENAI_API_KEY environment variable).");
+        }
+        if (modelName == null || modelName.isBlank()) {
+            throw new IllegalStateException("No OpenAI model specified. Pass a model name per call "
+                    + "(chat/chatStream overloads that take a model name) or configure a default via "
+                    + "'openai.model.name'.");
         }
 
         Map<String, Object> body = new LinkedHashMap<>();

@@ -128,4 +128,27 @@ class AnthropicModelExecutorTest {
                 () -> executor.chat(new ModelRequest(List.of(Message.user("hi")), List.of())));
         assertTrue(error.getMessage().contains("anthropic.api.key"));
     }
+
+    @Test
+    void failsWhenNoModelConfiguredOrSupplied() {
+        AnthropicModelExecutor executor = new AnthropicModelExecutor();
+        executor.apiKey = "test-key";
+        // modelName left unset, mirroring a missing 'anthropic.model.name'.
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> executor.chat(new ModelRequest(List.of(Message.user("hi")), List.of())));
+        assertTrue(error.getMessage().contains("anthropic.model.name"));
+    }
+
+    @Test
+    void usesPerCallModelWhenNoDefaultConfigured() throws Exception {
+        AtomicReference<String> body = new AtomicReference<>();
+        AnthropicModelExecutor executor = executorReturning(
+                "{\"content\":[{\"type\":\"text\",\"text\":\"hi\"}],\"stop_reason\":\"end_turn\"}", body);
+        executor.modelName = null; // no configured default; the model comes from the call
+
+        executor.chat("claude-per-call", new ModelRequest(List.of(Message.user("Hi?")), List.of()));
+
+        assertEquals("claude-per-call", JSON.readTree(body.get()).path("model").asText());
+    }
 }

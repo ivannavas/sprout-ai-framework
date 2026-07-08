@@ -20,10 +20,14 @@ import java.util.Map;
 
 /**
  * {@link ModelExecutor} for Anthropic's Messages API, registered under the bean name
- * {@code anthropic}. Configure {@code anthropic.api.key} and {@code anthropic.model.name} (and
- * optionally {@code anthropic.max.tokens}, {@code anthropic.timeout.seconds} and
- * {@code anthropic.api.url}). The API key also resolves from the {@code ANTHROPIC_API_KEY}
- * environment variable.
+ * {@code anthropic}. Configure {@code anthropic.api.key} (and optionally {@code anthropic.max.tokens},
+ * {@code anthropic.timeout.seconds} and {@code anthropic.api.url}); the API key also resolves from the
+ * {@code ANTHROPIC_API_KEY} environment variable.
+ *
+ * <p>The model can be chosen per call via {@link #chat(String, ModelRequest)} /
+ * {@code chatStream(String, ...)}. Configuring {@code anthropic.model.name} is optional: it only
+ * supplies the default used by the no-arg {@link #chat(ModelRequest)} overload, so it is not
+ * required when every call names its own model.
  */
 @Model("anthropic")
 public class AnthropicModelExecutor extends ModelExecutor {
@@ -31,7 +35,7 @@ public class AnthropicModelExecutor extends ModelExecutor {
     @Value("${anthropic.api.key}")
     protected String apiKey;
 
-    @Value("${anthropic.model.name}")
+    @Value("${anthropic.model.name:}")
     protected String modelName;
 
     @Value("${anthropic.max.tokens:4096}")
@@ -60,6 +64,11 @@ public class AnthropicModelExecutor extends ModelExecutor {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("Anthropic API key is not configured. Set 'anthropic.api.key' "
                     + "(for example via the ANTHROPIC_API_KEY environment variable).");
+        }
+        if (modelName == null || modelName.isBlank()) {
+            throw new IllegalStateException("No Anthropic model specified. Pass a model name per call "
+                    + "(chat/chatStream overloads that take a model name) or configure a default via "
+                    + "'anthropic.model.name'.");
         }
 
         Map<String, Object> body = new LinkedHashMap<>();

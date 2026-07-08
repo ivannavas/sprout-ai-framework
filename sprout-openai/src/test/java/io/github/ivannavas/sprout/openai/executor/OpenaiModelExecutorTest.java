@@ -127,4 +127,27 @@ class OpenaiModelExecutorTest {
                 () -> executor.chat(new ModelRequest(List.of(Message.user("hi")), List.of())));
         assertTrue(error.getMessage().contains("openai.api.key"));
     }
+
+    @Test
+    void failsWhenNoModelConfiguredOrSupplied() {
+        OpenaiModelExecutor executor = new OpenaiModelExecutor();
+        executor.apiKey = "test-key";
+        // modelName left unset, mirroring a missing 'openai.model.name'.
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> executor.chat(new ModelRequest(List.of(Message.user("hi")), List.of())));
+        assertTrue(error.getMessage().contains("openai.model.name"));
+    }
+
+    @Test
+    void usesPerCallModelWhenNoDefaultConfigured() throws Exception {
+        AtomicReference<String> body = new AtomicReference<>();
+        OpenaiModelExecutor executor = executorReturning(
+                "{\"choices\":[{\"message\":{\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}", body);
+        executor.modelName = null; // no configured default; the model comes from the call
+
+        executor.chat("gpt-per-call", new ModelRequest(List.of(Message.user("Hi?")), List.of()));
+
+        assertEquals("gpt-per-call", JSON.readTree(body.get()).path("model").asText());
+    }
 }
