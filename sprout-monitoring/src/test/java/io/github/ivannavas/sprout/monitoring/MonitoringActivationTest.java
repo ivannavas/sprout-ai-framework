@@ -53,6 +53,27 @@ class MonitoringActivationTest {
     }
 
     @Test
+    void monitoringAutoActivatesWithoutScanningTheStorePackage() {
+        // Only the app's agent package is scanned — NOT the store's impl package. MonitoringInitializer
+        // installs the in-memory default automatically because no @UsageStore was declared.
+        SproutContainer container = new SproutContainer(
+                MonitoringTestApp.class, Logger.getLogger(MonitoringActivationTest.class.getName()));
+        container.setProperty("sprout.scan.base-packages", "io.github.ivannavas.sprout.monitoring.itest");
+        container.bootstrap();
+
+        AbstractUsageStore store = container.getSingleton("usageStore");
+        assertInstanceOf(InMemoryUsageStore.class, store, "the default store is installed with no scanning");
+
+        AgentExecutor agent = container.getSingleton("monitoredAgentExecutor");
+        agent.execute("session", "hello");
+
+        UsageSnapshot snapshot = store.snapshot();
+        assertEquals(2, snapshot.modelCalls());
+        assertEquals(30, snapshot.inputTokens());
+        assertEquals(12, snapshot.outputTokens());
+    }
+
+    @Test
     void aScannedUsageStoreReplacesTheDefault() {
         SproutContainer container = SproutApplication.run(CustomStoreApp.class);
 

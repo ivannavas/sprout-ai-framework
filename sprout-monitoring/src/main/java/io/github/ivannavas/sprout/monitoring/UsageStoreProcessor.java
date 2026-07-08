@@ -20,9 +20,10 @@ import java.util.Set;
  * resolved from {@code sprout.monitoring.pricing.*} configuration.
  *
  * <p>The shipped {@link io.github.ivannavas.sprout.monitoring.impl.InMemoryUsageStore} is the in-memory
- * default: include its package on the component scan to use it (as the RAG example does for core's
- * in-memory vector store), or declare your own {@code @UsageStore} to persist usage elsewhere. Exactly one
- * usage store is expected; a second is rejected, since the collector records into a single store.
+ * default, installed automatically by {@link MonitoringInitializer} when the application declares no
+ * {@code @UsageStore} of its own; declare one to persist usage elsewhere and it replaces the default.
+ * Exactly one usage store is expected; a second scanned store is rejected, since the collector records
+ * into a single store.
  */
 @Processor(UsageStore.class)
 public class UsageStoreProcessor extends ComponentProcessor {

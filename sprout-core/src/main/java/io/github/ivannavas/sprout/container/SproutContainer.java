@@ -7,6 +7,7 @@ import io.github.ivannavas.sprout.impl.InMemoryEventBus;
 import io.github.ivannavas.sprout.processor.ComponentProcessor;
 import io.github.ivannavas.sprout.scanner.ComponentScanner;
 import io.github.ivannavas.sprout.scanner.ProcessorScanner;
+import io.github.ivannavas.sprout.scanner.ScanPackageContributor;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Constructor;
@@ -85,6 +86,13 @@ public final class SproutContainer {
         for (Runnable callback : readyCallbacks) {
             callback.run();
         }
+
+        // Modules on the classpath run their own setup now that every component is wired — e.g. to
+        // install an opt-out default that yields to anything the application already registered.
+        for (SproutModuleInitializer initializer : ServiceLoader.load(
+                SproutModuleInitializer.class, getClass().getClassLoader())) {
+            initializer.onContainerReady(this);
+        }
     }
 
     /**
@@ -130,14 +138,29 @@ public final class SproutContainer {
     }
 
     private List<String> resolveScanPackages() {
+        Set<String> packages = new LinkedHashSet<>();
+
+        // The application's own packages: whatever sprout.scan.base-packages lists, or the main
+        // class's package when it is unset.
         String configured = getProperty("sprout.scan.base-packages");
-        if (configured == null || configured.isBlank()) {
-            return List.of();
+        if (configured != null && !configured.isBlank()) {
+            Arrays.stream(configured.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .forEach(packages::add);
+        } else {
+            packages.add(mainClass.getPackageName());
         }
-        return Arrays.stream(configured.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .toList();
+
+        // Framework modules on the classpath declare the packages holding their auto-scanned
+        // components (e.g. the OpenAI/Anthropic @Model executors), so an application need not list
+        // them itself. Always added, since the module was deliberately put on the classpath.
+        for (ScanPackageContributor contributor : ServiceLoader.load(
+                ScanPackageContributor.class, getClass().getClassLoader())) {
+            packages.addAll(contributor.basePackages());
+        }
+
+        return List.copyOf(packages);
     }
 
     /**
