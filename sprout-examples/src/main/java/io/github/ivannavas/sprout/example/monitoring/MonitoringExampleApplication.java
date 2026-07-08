@@ -13,22 +13,20 @@ import java.util.Locale;
 import java.util.logging.Logger;
 
 /**
- * Shows {@code sprout-monitoring} working, fully offline. Monitoring's {@code @UsageStore} is wired by a
- * processor like any other component: we put the module's in-memory store package on the component scan
- * (the same way the RAG example pulls in core's in-memory vector store), and its processor registers the
- * store and subscribes a collector to the event bus. We run an agent a few times and then read back the
- * accumulated usage: per model, per agent and per tool, with costs derived from a
- * {@code sprout.monitoring.pricing.*} rate we set before bootstrapping.
+ * Shows {@code sprout-monitoring} working, fully offline. Monitoring activates automatically once the
+ * module is on the classpath: with no {@code @UsageStore} of our own, the shipped in-memory store is
+ * installed and a collector is subscribed to the event bus — no package to scan or configure. We run an
+ * agent a few times and then read back the accumulated usage: per model, per agent and per tool, with
+ * costs derived from a {@code sprout.monitoring.pricing.*} rate we set before bootstrapping.
  */
 public final class MonitoringExampleApplication {
 
     public static void main(String[] args) {
         SproutContainer container = new SproutContainer(
                 MonitoringExampleApplication.class, Logger.getLogger(MonitoringExampleApplication.class.getName()));
-        // Scan this example plus the module's in-memory store package, so the default @UsageStore is
-        // registered and wired (declare your own @UsageStore instead to persist usage elsewhere).
-        container.setProperty("sprout.scan.base-packages",
-                "io.github.ivannavas.sprout.example.monitoring,io.github.ivannavas.sprout.monitoring.impl");
+        // No scan config needed: this example's own package is scanned by default, and sprout-monitoring
+        // installs its in-memory @UsageStore automatically (declare your own @UsageStore to persist usage
+        // elsewhere).
         // Price the stub model so the report shows non-zero cost (rates are per one million tokens). In a
         // real app these live in sprout.properties; an unpriced model simply reports zero cost.
         container.setProperty("sprout.monitoring.pricing.WeatherStubModel.input", "3.0");

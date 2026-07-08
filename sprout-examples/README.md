@@ -164,12 +164,11 @@ via its `publish(Event)` helper) can define and emit its own `Event` types on th
 
 ## monitoring
 
-`MonitoringExampleApplication` shows **`sprout-monitoring`** working, fully offline. Monitoring's
-`@UsageStore` is wired by a processor like any other component: the app puts the module's in-memory store
-package (`io.github.ivannavas.sprout.monitoring.impl`) on its component scan, so the default store is
-registered and its processor subscribes a collector to the event bus. The app runs `WeatherAgent` for
-three cities, then reads `container.getSingleton("usageStore").snapshot()` and prints the per-model,
-per-agent and per-tool breakdown with costs:
+`MonitoringExampleApplication` shows **`sprout-monitoring`** working, fully offline. Monitoring activates
+automatically once the module is on the classpath: with no `@UsageStore` of its own, the app gets the
+shipped in-memory store and a collector subscribed to the event bus — nothing to scan or configure. The
+app runs `WeatherAgent` for three cities, then reads `container.getSingleton("usageStore").snapshot()` and
+prints the per-model, per-agent and per-tool breakdown with costs:
 
 ```bash
 mvn -pl sprout-examples -am -Pmonitoring exec:exec
@@ -192,7 +191,7 @@ Totals: 6 model calls, 357 tokens, $0.001791
 
 Each run makes two model calls (the tool request and the final answer), so three runs total six calls.
 To persist usage instead of holding it in memory, implement `AbstractUsageStore`, mark it `@UsageStore`
-and let it be scanned in your own package; its processor registers it in place of the default.
+and let it be scanned in your own package; it replaces the in-memory default.
 
 ## spring
 

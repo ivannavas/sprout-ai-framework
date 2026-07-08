@@ -18,7 +18,7 @@ without standing up a separate Python service or adopting a new programming mode
 into the dependency injection, configuration and tests you already use, and tools are ordinary methods
 backed by the services you already have. Sprout is also **fully Spring-compatible**: drop in the
 Spring Boot starter and Sprout and Spring beans inject into each other transparently, in both
-directions.
+directions — down to mixing each framework's DI annotations in the same class.
 
 ## Modules
 
@@ -29,7 +29,7 @@ directions.
 | `sprout-openai` | `ModelExecutor` for OpenAI's Chat Completions API (`@Model("openai")`), plus an `EmbeddingModel` (`@Embedding`) for OpenAI's embeddings API. |
 | `sprout-mcp` | Model Context Protocol support: expose `@Tool` methods as an MCP server, and consume remote MCP servers from an agent. |
 | `sprout-orchestration` | Run agent prompts concurrently, let a supervisor delegate subtasks to specialist agents, and hand a conversation off between agents. |
-| `sprout-monitoring` | Tracks agent/model usage, tokens and cost off the event bus, into a swappable `@UsageStore` component (in-memory default). Scan its store package, or declare your own `@UsageStore`. |
+| `sprout-monitoring` | Tracks agent/model usage, tokens and cost off the event bus, into a swappable `@UsageStore` component. Active automatically with an in-memory default; declare your own `@UsageStore` to replace it. |
 | `sprout-spring-boot-starter` | Runs Sprout inside Spring Boot, bridging beans and configuration both ways. See its [README](sprout-spring-boot-starter/README.md). |
 | `sprout-examples` | Runnable examples (basic, MCP, orchestration, RAG, events, monitoring, Spring). See its [README](sprout-examples/README.md). |
 
@@ -57,8 +57,9 @@ meta-annotated with `@Component`. So **a model and an agent are ordinary managed
 the container builds and wires them, and you inject them anywhere with `@Autowired` (by type, or by
 name with `@Qualifier`) exactly like any other bean. They are not a separate kind of object.
 
-Scanning starts from the entry point's package, or from the packages listed in
-`sprout.scan.base-packages`.
+Scanning starts from the entry point's package (or the packages listed in
+`sprout.scan.base-packages`), plus any package a module on the classpath contributes for itself — so the
+`sprout-openai` / `sprout-anthropic` model executors are discovered automatically, with no package to list.
 
 ### Models
 
@@ -321,16 +322,11 @@ raised them.
 per agent and per tool — with no change to your agents. It adds a `@UsageStore` component, wired by its
 own `@Processor` like `@Model` or `@ConversationStore`: the processor registers the store (under the name
 `usageStore`) and subscribes a collector to the event bus, so every execution is folded in. The shipped
-`InMemoryUsageStore` is the in-memory default — put its package on your component scan to use it (the same
-way the [RAG example](sprout-examples/README.md) pulls in core's in-memory vector store):
-
-```properties
-sprout.scan.base-packages=com.example.app,io.github.ivannavas.sprout.monitoring.impl
-```
-
-To persist usage instead, implement `AbstractUsageStore`, mark it `@UsageStore` and let it be scanned in
-your own package; that bean is the store, with nothing else changing (the same swap-the-component model as
-`@EventBus` and `@ConversationStore`). Then read the totals anywhere:
+`InMemoryUsageStore` is the in-memory default, installed automatically the moment `sprout-monitoring` is on
+the classpath — no package to scan or configure. To persist usage instead, implement `AbstractUsageStore`,
+mark it `@UsageStore` and let it be scanned in your own package; it replaces the default, with nothing else
+changing (the same swap-the-component model as `@EventBus` and `@ConversationStore`). Then read the totals
+anywhere:
 
 ```java
 UsageSnapshot usage = container.<AbstractUsageStore>getSingleton("usageStore").snapshot();
@@ -360,6 +356,12 @@ bootstrapped during context startup. Integration works in both directions —
   the `ApplicationContext`, so you can `@Autowired` it into any `@Controller`/`@Service`.
 - **Spring → Sprout:** a Sprout component can depend on a Spring bean; it is resolved from the Spring
   `BeanFactory` (as a lazy proxy, preserving AOP/`@Transactional`).
+- **Annotations interchange, both ways:** a Sprout component still works if it carries Spring or JSR-330
+  annotations (`@Autowired`/`@Value`/`@Qualifier`, `jakarta.inject.@Inject`/`@Named`), and a Spring-managed
+  bean works with Sprout's own `@Autowired`/`@Value`/`@Qualifier`/`@PostConstruct` — so same-named
+  annotations from either framework no longer clash. Treat this as a **compatibility net** (for mixed or
+  migrating code), not a style: **prefer Sprout's annotations in Sprout components, and each DI container's
+  own annotations in its own beans.** See the [starter README](sprout-spring-boot-starter/README.md#mixing-sprout-and-spring-annotations).
 
 So an agent can be backed by an existing Spring `@Service` and called straight from a controller:
 
