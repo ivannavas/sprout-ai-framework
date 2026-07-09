@@ -32,7 +32,7 @@ import java.util.Map;
 @Model("anthropic")
 public class AnthropicModelExecutor extends ModelExecutor {
 
-    @Value("${anthropic.api.key}")
+    @Value("${anthropic.api.key:}")
     protected String apiKey;
 
     @Value("${anthropic.model.name:}")

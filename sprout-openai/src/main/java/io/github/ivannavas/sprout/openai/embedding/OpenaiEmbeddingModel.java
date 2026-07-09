@@ -25,7 +25,7 @@ import java.util.Map;
 @Embedding
 public class OpenaiEmbeddingModel extends EmbeddingModel {
 
-    @Value("${openai.api.key}")
+    @Value("${openai.api.key:}")
     protected String apiKey;
 
     @Value("${openai.embedding.model.name:text-embedding-3-small}")

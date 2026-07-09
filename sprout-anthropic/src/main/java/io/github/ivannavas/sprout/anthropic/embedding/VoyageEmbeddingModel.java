@@ -26,7 +26,7 @@ import java.util.Map;
 @Embedding
 public class VoyageEmbeddingModel extends EmbeddingModel {
 
-    @Value("${voyage.api.key}")
+    @Value("${voyage.api.key:}")
     protected String apiKey;
 
     @Value("${voyage.embedding.model.name:voyage-3}")
