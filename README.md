@@ -27,6 +27,7 @@ directions — down to mixing each framework's DI annotations in the same class.
 | `sprout-core` | IoC container, component scanning, dependency injection, configuration, an event bus, and the agent/model/tool/RAG abstractions — including a built-in in-memory vector store and embedding model. |
 | `sprout-anthropic` | `ModelExecutor` for Anthropic's Messages API (`@Model("anthropic")`), plus a Voyage AI `EmbeddingModel` (`@Embedding`) for RAG — the embedding provider Anthropic recommends. |
 | `sprout-openai` | `ModelExecutor` for OpenAI's Chat Completions API (`@Model("openai")`), plus an `EmbeddingModel` (`@Embedding`) for OpenAI's embeddings API. |
+| `sprout-pgvector` | Durable, database-backed RAG: a `PgVectorStore` (`@VectorStore`) that indexes and searches document embeddings in PostgreSQL via the [pgvector](https://github.com/pgvector/pgvector) extension — a drop-in replacement for the in-memory store. |
 | `sprout-mcp` | Model Context Protocol support: expose `@Tool` methods as an MCP server, and consume remote MCP servers from an agent. |
 | `sprout-orchestration` | Run agent prompts concurrently, let a supervisor delegate subtasks to specialist agents, and hand a conversation off between agents. |
 | `sprout-monitoring` | Tracks agent/model usage, tokens and cost off the event bus, into a swappable `@UsageStore` component. Active automatically with an in-memory default; declare your own `@UsageStore` to replace it. |
@@ -269,6 +270,15 @@ swap in a provider-backed embedding model — `OpenaiEmbeddingModel` (`sprout-op
 embeddings) — by naming it in `@Agent(embeddingModel = ...)`. RAG stays opt-in: an agent that declares
 no vector store does no retrieval. See the runnable [RAG example](sprout-examples/README.md).
 
+For a **durable, scalable** store, swap `InMemoryVectorStore` for `sprout-pgvector`'s `PgVectorStore`,
+which keeps documents in PostgreSQL and runs the similarity search in the database (an HNSW index over the
+[pgvector](https://github.com/pgvector/pgvector) `vector` type). It is a drop-in `@VectorStore` — name it
+in `@Agent(vectorStore = PgVectorStore.class)` and index into the same bean — and needs no configuration at
+startup: point `pgvector.url` (plus optional `pgvector.username`/`pgvector.password`) at your database, and
+the extension, table and index are created on first use. `pgvector.table`, `pgvector.dimension` (inferred
+from the first indexed document when unset) and `pgvector.distance` (`cosine`, `l2` or `inner_product`) tune
+the rest. See its [README](sprout-pgvector/README.md).
+
 ### Events
 
 Sprout has a lightweight **event bus** for observing what agents and models do, without coupling the
@@ -498,8 +508,9 @@ This is the first release, so the surface is deliberately focused. The list belo
   *delegation* and conversation *hand-off* (each agent keeping its own system prompt); next is dynamic
   team membership and shared scratchpad state.
 - **Richer RAG.** Core RAG has shipped — per-agent retrieval, an in-memory vector store and
-  lexical/semantic embedding models; next are persistent vector-store modules (e.g. pgvector, Redis),
-  document loaders and chunking, and conversational memory.
+  lexical/semantic embedding models — and `sprout-pgvector` adds a persistent, database-backed vector
+  store; next are more vector-store modules (e.g. Redis), document loaders and chunking, and
+  conversational memory.
 - **Observability.** An event bus publishes the agent/model/tool lifecycle (and takes custom events),
   and `sprout-monitoring` already accumulates usage, token and cost totals on top of it; next are
   tracing and richer metrics backends (e.g. a Micrometer/Prometheus `@UsageStore`), plus distributed

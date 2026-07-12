@@ -41,6 +41,7 @@
         <module>sprout-examples</module>
         <module>sprout-openai</module>
         <module>sprout-anthropic</module>
+        <module>sprout-pgvector</module>
         <module>sprout-mcp</module>
         <module>sprout-spring-boot-starter</module>
         <module>sprout-orchestration</module>
