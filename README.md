@@ -354,8 +354,20 @@ unpriced model still has its tokens tracked, at zero cost. Because the store is 
 ### MCP
 
 With `sprout-mcp` on the classpath, an `@Mcp` bean's `@Tool` methods are published over the Model
-Context Protocol, and an `@Agent` can connect to remote MCP servers with `@UseMcp` to use their tools
-as if they were its own. See [sprout-examples](sprout-examples/README.md) for both sides.
+Context Protocol, and an `@Agent` can connect to MCP servers with `@UseMcp` to use their tools as if
+they were its own. Each `@McpEndpoint` connects either by launching a local server as a child process
+over stdio (`command`) or to an already-running server over HTTP (`url`):
+
+```java
+@Agent(model = AnthropicModelExecutor.class)
+@UseMcp({
+    @McpEndpoint(command = {"${java.home}/bin/java", "-cp", "${java.class.path}", "com.example.Server"}),
+    @McpEndpoint(url = "${weather.mcp.url}")   // a server already running elsewhere
+})
+public class ResearchAgent extends AgentExecutor { ... }
+```
+
+See [sprout-examples](sprout-examples/README.md) for both sides.
 
 ### Spring Boot — fully compatible
 

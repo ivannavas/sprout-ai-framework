@@ -40,11 +40,7 @@ public class McpAgentProcessor extends AgentProcessor {
 
         List<McpClient> clients = new ArrayList<>();
         for (McpEndpoint endpoint : useMcp.value()) {
-            List<String> command = Arrays.stream(endpoint.command())
-                    .map(sproutContainer::resolveExpression)
-                    .toList();
-            String name = endpoint.name().isEmpty() ? command.toString() : endpoint.name();
-            McpClient client = new McpClient(name, command);
+            McpClient client = createClient(endpoint);
             clients.add(client);
             executor.addToolProvider(client);
         }
@@ -52,5 +48,28 @@ public class McpAgentProcessor extends AgentProcessor {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> clients.forEach(McpClient::close), "sprout-mcp-client-close"));
         sproutContainer.logger().info("Sprout MCP: agent " + component.getSimpleName()
                 + " connected to " + clients.size() + " MCP server(s)");
+    }
+
+    // Builds a client for one endpoint: an HTTP connection to an already-running server (url), or a
+    // local child process launched from a command (stdio). Exactly one of the two must be set.
+    private McpClient createClient(McpEndpoint endpoint) {
+        boolean hasCommand = endpoint.command().length > 0;
+        boolean hasUrl = !endpoint.url().isEmpty();
+        if (hasCommand == hasUrl) {
+            throw new IllegalStateException("@McpEndpoint on " + component.getSimpleName()
+                    + " must set exactly one of command() or url()");
+        }
+
+        if (hasUrl) {
+            String url = sproutContainer.resolveExpression(endpoint.url());
+            String name = endpoint.name().isEmpty() ? url : endpoint.name();
+            return new McpClient(name, url);
+        }
+
+        List<String> command = Arrays.stream(endpoint.command())
+                .map(sproutContainer::resolveExpression)
+                .toList();
+        String name = endpoint.name().isEmpty() ? command.toString() : endpoint.name();
+        return new McpClient(name, command);
     }
 }
