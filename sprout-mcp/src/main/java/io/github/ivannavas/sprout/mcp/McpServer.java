@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
 import io.github.ivannavas.sprout.annotation.Tool;
 import io.github.ivannavas.sprout.container.SproutContainer;
 import io.github.ivannavas.sprout.mcp.annotation.Mcp;
@@ -15,6 +17,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.lang.reflect.Method;
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -29,9 +32,10 @@ import java.util.Set;
  * A <a href="https://modelcontextprotocol.io">Model Context Protocol</a> server that exposes the
  * {@link Tool @Tool} methods of every {@link Mcp @Mcp} bean managed by a {@link SproutContainer}.
  *
- * <p>Build it with {@link #from(SproutContainer)} and serve it over the standard stdio transport
- * with {@link #serveStdio()} (newline-delimited JSON-RPC 2.0). The supported methods are
- * {@code initialize}, {@code tools/list} and {@code tools/call}.
+ * <p>Build it with {@link #from(SproutContainer)} and serve it over either transport: the standard
+ * stdio transport with {@link #serveStdio()} (newline-delimited JSON-RPC 2.0), or HTTP with
+ * {@link #serveHttp(int)} (the MCP Streamable HTTP transport), so remote clients can reach it by URL.
+ * The supported methods are {@code initialize}, {@code tools/list} and {@code tools/call}.
  */
 public final class McpServer {
 
@@ -138,6 +142,53 @@ public final class McpServer {
                 writer.println(json.writeValueAsString(response));
             }
         }
+    }
+
+    /**
+     * Serves the protocol over HTTP (the MCP Streamable HTTP transport) on {@code port}. Each JSON-RPC
+     * message is accepted as a {@code POST} and answered with an {@code application/json} response;
+     * notifications (no {@code id}) get {@code 202 Accepted} with no body. Pass {@code 0} to bind an
+     * ephemeral port. Non-blocking: requests run on the returned server's background threads, which
+     * keep the JVM alive until {@link HttpServer#stop(int)} is called.
+     */
+    public HttpServer serveHttp(int port) throws IOException {
+        HttpServer http = HttpServer.create(new InetSocketAddress(port), 0);
+        http.createContext("/", this::handleHttp);
+        http.start();
+        return http;
+    }
+
+    private void handleHttp(HttpExchange exchange) throws IOException {
+        try (exchange) {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, -1);
+                return;
+            }
+
+            JsonNode response;
+            JsonNode requestId = null;
+            try {
+                JsonNode request = json.readTree(exchange.getRequestBody().readAllBytes());
+                requestId = request.get("id");
+                response = handle(request);
+            } catch (Exception e) {
+                writeJson(exchange, error(requestId, -32603, "Internal error: " + e.getMessage()));
+                return;
+            }
+
+            if (response == null) {
+                exchange.sendResponseHeaders(202, -1); // notification: accepted, no body
+                return;
+            }
+            writeJson(exchange, response);
+        }
+    }
+
+    private void writeJson(HttpExchange exchange, JsonNode message) throws IOException {
+        byte[] body = json.writeValueAsBytes(message);
+        exchange.getResponseHeaders().add("Content-Type", "application/json");
+        exchange.sendResponseHeaders(200, body.length);
+        exchange.getResponseBody().write(body);
     }
 
     /**

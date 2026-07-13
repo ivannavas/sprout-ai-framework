@@ -367,6 +367,11 @@ over stdio (`command`) or to an already-running server over HTTP (`url`):
 public class ResearchAgent extends AgentExecutor { ... }
 ```
 
+On the server side, the aggregated `@Mcp` tools auto-start over **stdio** (unless
+`sprout.mcp.auto-start=false`) and, when `sprout.mcp.http.port` is set, also over **HTTP** on that port
+so remote clients can reach them by URL. `McpServer` can also be served directly with `serveStdio()` or
+`serveHttp(port)`.
+
 See [sprout-examples](sprout-examples/README.md) for both sides.
 
 ### Spring Boot — fully compatible
