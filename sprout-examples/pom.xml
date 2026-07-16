@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.github.ivannavas</groupId>
         <artifactId>sprout-ai-framework</artifactId>
-        <version>1.7.1</version>
+        <version>1.8.0</version>
     </parent>
 
     <artifactId>sprout-examples</artifactId>
@@ -45,6 +45,13 @@
         <dependency>
             <groupId>io.github.ivannavas</groupId>
             <artifactId>sprout-anthropic</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- ollama example -->
+        <dependency>
+            <groupId>io.github.ivannavas</groupId>
+            <artifactId>sprout-ollama</artifactId>
             <version>${project.version}</version>
         </dependency>
 
@@ -123,6 +130,7 @@
         rag:             mvn -pl sprout-examples -am -Prag exec:exec
         events:          mvn -pl sprout-examples -am -Pevents exec:exec
         monitoring:      mvn -pl sprout-examples -am -Pmonitoring exec:exec
+        ollama:          mvn -pl sprout-examples -am -Pollama exec:exec
     -->
     <profiles>
         <profile>
@@ -246,6 +254,27 @@
                                 <argument>-classpath</argument>
                                 <classpath/>
                                 <argument>io.github.ivannavas.sprout.example.monitoring.MonitoringExampleApplication</argument>
+                            </arguments>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>ollama</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.2.0</version>
+                        <configuration>
+                            <executable>${java.home}/bin/java</executable>
+                            <arguments>
+                                <argument>-Dsprout.scan.base-packages=io.github.ivannavas.sprout.example.ollama,io.github.ivannavas.sprout.ollama</argument>
+                                <argument>-classpath</argument>
+                                <classpath/>
+                                <argument>io.github.ivannavas.sprout.example.ollama.OllamaExampleApplication</argument>
                             </arguments>
                         </configuration>
                     </plugin>

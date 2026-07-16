@@ -9,6 +9,7 @@ one classpath:
 | Package | Example | Run with |
 |---|---|---|
 | `io.github.ivannavas.sprout.example.basic` | Plain Java app backed by the Anthropic model, then orchestrating concurrent agent runs | `mvn -pl sprout-examples -am exec:exec` |
+| `io.github.ivannavas.sprout.example.ollama` | Plain Java app backed by a **local** Ollama model — streams a reply token by token, then answers via an agent. No API key | `mvn -pl sprout-examples -am -Pollama exec:exec` |
 | `io.github.ivannavas.sprout.example.mcp` | An MCP server exposed from `@Tool` methods and an agent that connects to it as a client | `mvn -pl sprout-examples -am -Pmcp exec:exec` |
 | `io.github.ivannavas.sprout.example.orchestration` | A tour of `sprout-orchestration`: concurrent runs, supervisor delegation and conversation hand-off, sharing one cast of agents | `mvn -pl sprout-examples -am -Porchestration exec:exec` |
 | `io.github.ivannavas.sprout.example.rag` | RAG end to end: an agent answers from a knowledge base indexed into the built-in vector store | `mvn -pl sprout-examples -am -Prag exec:exec` |
@@ -34,6 +35,36 @@ id. It needs an API key:
 ```bash
 export ANTHROPIC_API_KEY=sk-...
 mvn -pl sprout-examples -am exec:exec
+```
+
+## ollama
+
+`OllamaExampleApplication` talks to a locally running [Ollama](https://ollama.com) server through the
+`@Model("ollama")` executor from `sprout-ollama`. Because Ollama runs the model on your machine, there
+is **no API key** — only a running server and a pulled model. It first makes a direct streaming call
+(printing the reply token by token as Ollama's newline-delimited JSON arrives), then wraps the same
+model in `LocalAssistantAgent` to answer a couple of one-shot questions.
+
+```bash
+# one-time setup: install Ollama (https://ollama.com), then pull a model
+ollama pull llama3.2
+
+mvn -pl sprout-examples -am -Pollama exec:exec
+# override the model (must be pulled locally):
+OLLAMA_MODEL=qwen2.5 mvn -pl sprout-examples -am -Pollama exec:exec
+```
+
+The model name comes from `ollama.model.name` in `sprout.properties` (default `llama3.2`, overridable
+with the `OLLAMA_MODEL` env var); the server URL defaults to `http://localhost:11434/api/chat` and is
+configurable via `ollama.api.url`. Because it hits a live local model, the exact wording of the output
+varies from run to run — a sample:
+
+```
+Streaming a haiku about Java: Coffee cup steams warm /
+classes weave through morning light /
+threads run without end
+Name a planet in our solar system. -> Jupiter is a planet in our solar system.
+Name an ocean on Earth. -> The Pacific Ocean is one of the five oceans on Earth.
 ```
 
 ## mcp

@@ -9,31 +9,23 @@
         <version>1.8.0</version>
     </parent>
 
-    <artifactId>sprout-orchestration</artifactId>
-
-    <name>Sprout Orchestration</name>
-    <description>Concurrent, reactive orchestration of Sprout agent executions.</description>
+    <artifactId>sprout-ollama</artifactId>
+    <name>Sprout Ollama</name>
+    <description>Ollama provider for Sprout: a ModelExecutor for the local Ollama chat API (@Model("ollama")) and an EmbeddingModel (@Embedding) — locally hosted models with no API key.</description>
 
     <properties>
-        <reactor.version>3.6.15</reactor.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
     <dependencies>
         <dependency>
             <groupId>io.github.ivannavas</groupId>
             <artifactId>sprout-core</artifactId>
-            <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>io.projectreactor</groupId>
-            <artifactId>reactor-core</artifactId>
-            <version>${reactor.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>io.projectreactor</groupId>
-            <artifactId>reactor-test</artifactId>
-            <version>${reactor.version}</version>
-            <scope>test</scope>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
         </dependency>
     </dependencies>
+
 </project>

@@ -6,7 +6,7 @@
 
     <groupId>io.github.ivannavas</groupId>
     <artifactId>sprout-ai-framework</artifactId>
-    <version>1.7.1</version>
+    <version>1.8.0</version>
     <packaging>pom</packaging>
 
     <name>Sprout AI Framework</name>
@@ -41,6 +41,7 @@
         <module>sprout-examples</module>
         <module>sprout-openai</module>
         <module>sprout-anthropic</module>
+        <module>sprout-ollama</module>
         <module>sprout-pgvector</module>
         <module>sprout-mcp</module>
         <module>sprout-spring-boot-starter</module>

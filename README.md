@@ -27,6 +27,7 @@ directions — down to mixing each framework's DI annotations in the same class.
 | `sprout-core` | IoC container, component scanning, dependency injection, configuration, an event bus, and the agent/model/tool/RAG abstractions — including a built-in in-memory vector store and embedding model. |
 | `sprout-anthropic` | `ModelExecutor` for Anthropic's Messages API (`@Model("anthropic")`), plus a Voyage AI `EmbeddingModel` (`@Embedding`) for RAG — the embedding provider Anthropic recommends. |
 | `sprout-openai` | `ModelExecutor` for OpenAI's Chat Completions API (`@Model("openai")`), plus an `EmbeddingModel` (`@Embedding`) for OpenAI's embeddings API. |
+| `sprout-ollama` | `ModelExecutor` for a local Ollama server's chat API (`@Model("ollama")`), plus an `EmbeddingModel` (`@Embedding`) — locally hosted models with no API key. |
 | `sprout-pgvector` | Durable, database-backed RAG: a `PgVectorStore` (`@VectorStore`) that indexes and searches document embeddings in PostgreSQL via the [pgvector](https://github.com/pgvector/pgvector) extension — a drop-in replacement for the in-memory store. |
 | `sprout-mcp` | Model Context Protocol support: expose `@Tool` methods as an MCP server, and consume remote MCP servers from an agent. |
 | `sprout-orchestration` | Run agent prompts concurrently, let a supervisor delegate subtasks to specialist agents, and hand a conversation off between agents. |
@@ -60,12 +61,12 @@ name with `@Qualifier`) exactly like any other bean. They are not a separate kin
 
 Scanning starts from the entry point's package (or the packages listed in
 `sprout.scan.base-packages`), plus any package a module on the classpath contributes for itself — so the
-`sprout-openai` / `sprout-anthropic` model executors are discovered automatically, with no package to list.
+`sprout-openai` / `sprout-anthropic` / `sprout-ollama` model executors are discovered automatically, with no package to list.
 
 ### Models
 
-A model is a `ModelExecutor` subclass annotated with `@Model`. `sprout-anthropic` and `sprout-openai`
-ship implementations; you can add your own (including offline stubs for tests) by extending
+A model is a `ModelExecutor` subclass annotated with `@Model`. `sprout-anthropic`, `sprout-openai`
+and `sprout-ollama` ship implementations; you can add your own (including offline stubs for tests) by extending
 `ModelExecutor` and implementing `chat(ModelRequest)`. Call `invoke(ModelRequest)` to run a model as an
 observable execution (it wraps `chat` with the model lifecycle [events](#events)); the agent loop uses
 it, so an agent's model calls are observed automatically. `chat`, `invoke` and `chatStream` each take a
