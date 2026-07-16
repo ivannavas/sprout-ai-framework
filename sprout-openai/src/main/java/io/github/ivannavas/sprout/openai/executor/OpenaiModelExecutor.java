@@ -3,6 +3,7 @@ package io.github.ivannavas.sprout.openai.executor;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.ivannavas.sprout.annotation.Autowired;
 import io.github.ivannavas.sprout.annotation.Model;
 import io.github.ivannavas.sprout.annotation.Value;
 import io.github.ivannavas.sprout.event.ModelRequestEvent;
@@ -41,22 +42,27 @@ import java.util.stream.Stream;
 @Model("openai")
 public class OpenaiModelExecutor extends ModelExecutor {
 
-    @Value("${openai.api.key}")
-    protected String apiKey;
-
-    @Value("${openai.model.name:}")
-    protected String modelName;
-
-    @Value("${openai.timeout.seconds:60}")
-    protected int requestTimeoutSeconds;
-
-    @Value("${openai.api.url:https://api.openai.com/v1/chat/completions}")
-    protected String apiUrl;
+    private final String apiKey;
+    private final String modelName;
+    private final int requestTimeoutSeconds;
+    private final String apiUrl;
 
     protected HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Autowired
+    public OpenaiModelExecutor(
+            @Value("${openai.api.key}") String apiKey,
+            @Value("${openai.model.name:}") String modelName,
+            @Value("${openai.timeout.seconds:60}") int requestTimeoutSeconds,
+            @Value("${openai.api.url:https://api.openai.com/v1/chat/completions}") String apiUrl) {
+        this.apiKey = apiKey;
+        this.modelName = modelName;
+        this.requestTimeoutSeconds = requestTimeoutSeconds;
+        this.apiUrl = apiUrl;
+    }
 
     @Override
     public ModelResponse chat(ModelRequest request) {

@@ -2,7 +2,6 @@ package io.github.ivannavas.sprout.processor;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.AnnotatedElement;
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.HashSet;
 import java.util.Set;
@@ -53,17 +52,17 @@ final class DiAnnotations {
         return find(element, AUTOWIRED) != null;
     }
 
-    static boolean isValueAnnotated(Field field) {
-        return find(field, VALUE) != null;
+    static boolean isValueAnnotated(AnnotatedElement element) {
+        return find(element, VALUE) != null;
     }
 
     static boolean isPostConstruct(Method method) {
         return find(method, POST_CONSTRUCT) != null;
     }
 
-    // The ${...} expression from a @Value-style annotation, or null when the field carries none.
-    static String valueExpression(Field field) {
-        Annotation ann = find(field, VALUE);
+    // The ${...} expression from a @Value-style annotation, or null when the element carries none.
+    static String valueExpression(AnnotatedElement element) {
+        Annotation ann = find(element, VALUE);
         return ann == null ? null : readString(ann, "value");
     }
 

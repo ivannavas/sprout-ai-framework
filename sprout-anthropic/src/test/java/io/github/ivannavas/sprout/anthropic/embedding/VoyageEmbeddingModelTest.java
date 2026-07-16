@@ -43,12 +43,8 @@ class VoyageEmbeddingModelTest {
         });
         server.start();
 
-        VoyageEmbeddingModel model = new VoyageEmbeddingModel();
-        model.apiKey = "test-key";
-        model.modelName = "voyage-test";
-        model.requestTimeoutSeconds = 5;
-        model.apiUrl = "http://localhost:" + server.getAddress().getPort() + "/v1/embeddings";
-        return model;
+        return new VoyageEmbeddingModel("test-key", "voyage-test", 5,
+                "http://localhost:" + server.getAddress().getPort() + "/v1/embeddings");
     }
 
     @Test
@@ -90,11 +86,8 @@ class VoyageEmbeddingModelTest {
         });
         server.start();
 
-        VoyageEmbeddingModel model = new VoyageEmbeddingModel();
-        model.apiKey = "test-key";
-        model.modelName = "voyage-test";
-        model.requestTimeoutSeconds = 5;
-        model.apiUrl = "http://localhost:" + server.getAddress().getPort() + "/v1/embeddings";
+        VoyageEmbeddingModel model = new VoyageEmbeddingModel("test-key", "voyage-test", 5,
+                "http://localhost:" + server.getAddress().getPort() + "/v1/embeddings");
 
         RuntimeException error = assertThrows(RuntimeException.class, () -> model.embed("hi"));
         assertTrue(error.getMessage().contains("429"));
@@ -103,8 +96,8 @@ class VoyageEmbeddingModelTest {
 
     @Test
     void failsFastWhenApiKeyMissing() {
-        VoyageEmbeddingModel model = new VoyageEmbeddingModel();
-        model.modelName = "voyage-test";
+        VoyageEmbeddingModel model = new VoyageEmbeddingModel(null, "voyage-test", 5,
+                "http://localhost/v1/embeddings");
 
         IllegalStateException error = assertThrows(IllegalStateException.class, () -> model.embed("hi"));
         assertTrue(error.getMessage().contains("voyage.api.key"));

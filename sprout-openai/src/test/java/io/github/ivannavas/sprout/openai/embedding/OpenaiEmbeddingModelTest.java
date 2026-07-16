@@ -43,12 +43,8 @@ class OpenaiEmbeddingModelTest {
         });
         server.start();
 
-        OpenaiEmbeddingModel model = new OpenaiEmbeddingModel();
-        model.apiKey = "test-key";
-        model.modelName = "text-embedding-test";
-        model.requestTimeoutSeconds = 5;
-        model.apiUrl = "http://localhost:" + server.getAddress().getPort() + "/v1/embeddings";
-        return model;
+        return new OpenaiEmbeddingModel("test-key", "text-embedding-test", 5,
+                "http://localhost:" + server.getAddress().getPort() + "/v1/embeddings");
     }
 
     @Test
@@ -90,11 +86,8 @@ class OpenaiEmbeddingModelTest {
         });
         server.start();
 
-        OpenaiEmbeddingModel model = new OpenaiEmbeddingModel();
-        model.apiKey = "test-key";
-        model.modelName = "text-embedding-test";
-        model.requestTimeoutSeconds = 5;
-        model.apiUrl = "http://localhost:" + server.getAddress().getPort() + "/v1/embeddings";
+        OpenaiEmbeddingModel model = new OpenaiEmbeddingModel("test-key", "text-embedding-test", 5,
+                "http://localhost:" + server.getAddress().getPort() + "/v1/embeddings");
 
         RuntimeException error = assertThrows(RuntimeException.class, () -> model.embed("hi"));
         assertTrue(error.getMessage().contains("429"));
@@ -103,8 +96,8 @@ class OpenaiEmbeddingModelTest {
 
     @Test
     void failsFastWhenApiKeyMissing() {
-        OpenaiEmbeddingModel model = new OpenaiEmbeddingModel();
-        model.modelName = "text-embedding-test";
+        OpenaiEmbeddingModel model = new OpenaiEmbeddingModel(null, "text-embedding-test", 5,
+                "http://localhost/v1/embeddings");
 
         IllegalStateException error = assertThrows(IllegalStateException.class, () -> model.embed("hi"));
         assertTrue(error.getMessage().contains("openai.api.key"));

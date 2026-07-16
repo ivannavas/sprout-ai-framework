@@ -39,6 +39,10 @@ class AnthropicModelExecutorTest {
     }
 
     private AnthropicModelExecutor executorReturning(String responseJson, AtomicReference<String> capturedBody) throws IOException {
+        return executorReturning("claude-test", responseJson, capturedBody);
+    }
+
+    private AnthropicModelExecutor executorReturning(String modelName, String responseJson, AtomicReference<String> capturedBody) throws IOException {
         server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         server.createContext("/v1/messages", exchange -> {
             byte[] requestBytes = exchange.getRequestBody().readAllBytes();
@@ -50,13 +54,8 @@ class AnthropicModelExecutorTest {
         });
         server.start();
 
-        AnthropicModelExecutor executor = new AnthropicModelExecutor();
-        executor.apiKey = "test-key";
-        executor.modelName = "claude-test";
-        executor.maxTokens = 1024;
-        executor.requestTimeoutSeconds = 5;
-        executor.apiUrl = "http://localhost:" + server.getAddress().getPort() + "/v1/messages";
-        return executor;
+        return new AnthropicModelExecutor("test-key", modelName, 1024, 5,
+                "http://localhost:" + server.getAddress().getPort() + "/v1/messages");
     }
 
     @Test
@@ -110,11 +109,8 @@ class AnthropicModelExecutorTest {
         });
         server.start();
 
-        AnthropicModelExecutor executor = new AnthropicModelExecutor();
-        executor.apiKey = "test-key";
-        executor.modelName = "claude-test";
-        executor.requestTimeoutSeconds = 5;
-        executor.apiUrl = "http://localhost:" + server.getAddress().getPort() + "/v1/messages";
+        AnthropicModelExecutor executor = new AnthropicModelExecutor("test-key", "claude-test", 1024, 5,
+                "http://localhost:" + server.getAddress().getPort() + "/v1/messages");
 
         RuntimeException error = assertThrows(RuntimeException.class,
                 () -> executor.chat(new ModelRequest(List.of(Message.user("hi")), List.of())));
@@ -124,8 +120,8 @@ class AnthropicModelExecutorTest {
 
     @Test
     void failsFastWhenApiKeyMissing() {
-        AnthropicModelExecutor executor = new AnthropicModelExecutor();
-        executor.modelName = "claude-test";
+        AnthropicModelExecutor executor = new AnthropicModelExecutor(null, "claude-test", 1024, 5,
+                "http://localhost/v1/messages");
 
         IllegalStateException error = assertThrows(IllegalStateException.class,
                 () -> executor.chat(new ModelRequest(List.of(Message.user("hi")), List.of())));
@@ -134,9 +130,9 @@ class AnthropicModelExecutorTest {
 
     @Test
     void failsWhenNoModelConfiguredOrSupplied() {
-        AnthropicModelExecutor executor = new AnthropicModelExecutor();
-        executor.apiKey = "test-key";
-        // modelName left unset, mirroring a missing 'anthropic.model.name'.
+        // modelName left null, mirroring a missing 'anthropic.model.name'.
+        AnthropicModelExecutor executor = new AnthropicModelExecutor("test-key", null, 1024, 5,
+                "http://localhost/v1/messages");
 
         IllegalStateException error = assertThrows(IllegalStateException.class,
                 () -> executor.chat(new ModelRequest(List.of(Message.user("hi")), List.of())));
@@ -245,11 +241,8 @@ class AnthropicModelExecutorTest {
         });
         server.start();
 
-        AnthropicModelExecutor executor = new AnthropicModelExecutor();
-        executor.apiKey = "test-key";
-        executor.modelName = "claude-test";
-        executor.requestTimeoutSeconds = 5;
-        executor.apiUrl = "http://localhost:" + server.getAddress().getPort() + "/v1/messages";
+        AnthropicModelExecutor executor = new AnthropicModelExecutor("test-key", "claude-test", 1024, 5,
+                "http://localhost:" + server.getAddress().getPort() + "/v1/messages");
 
         AtomicReference<Throwable> error = new AtomicReference<>();
         executor.chatStream(new ModelRequest(List.of(Message.user("hi")), List.of()), new StreamListener() {
@@ -266,9 +259,9 @@ class AnthropicModelExecutorTest {
     @Test
     void usesPerCallModelWhenNoDefaultConfigured() throws Exception {
         AtomicReference<String> body = new AtomicReference<>();
+        // no configured default; the model comes from the call
         AnthropicModelExecutor executor = executorReturning(
-                "{\"content\":[{\"type\":\"text\",\"text\":\"hi\"}],\"stop_reason\":\"end_turn\"}", body);
-        executor.modelName = null; // no configured default; the model comes from the call
+                null, "{\"content\":[{\"type\":\"text\",\"text\":\"hi\"}],\"stop_reason\":\"end_turn\"}", body);
 
         executor.chat("claude-per-call", new ModelRequest(List.of(Message.user("Hi?")), List.of()));
 

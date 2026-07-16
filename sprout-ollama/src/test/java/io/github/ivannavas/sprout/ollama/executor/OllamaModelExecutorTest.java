@@ -40,6 +40,10 @@ class OllamaModelExecutorTest {
     }
 
     private OllamaModelExecutor executorReturning(String responseJson, AtomicReference<String> capturedBody) throws IOException {
+        return executorReturning("llama-test", responseJson, capturedBody);
+    }
+
+    private OllamaModelExecutor executorReturning(String modelName, String responseJson, AtomicReference<String> capturedBody) throws IOException {
         server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         server.createContext("/api/chat", exchange -> {
             byte[] requestBytes = exchange.getRequestBody().readAllBytes();
@@ -51,11 +55,8 @@ class OllamaModelExecutorTest {
         });
         server.start();
 
-        OllamaModelExecutor executor = new OllamaModelExecutor();
-        executor.modelName = "llama-test";
-        executor.requestTimeoutSeconds = 5;
-        executor.apiUrl = "http://localhost:" + server.getAddress().getPort() + "/api/chat";
-        return executor;
+        return new OllamaModelExecutor(modelName, 5,
+                "http://localhost:" + server.getAddress().getPort() + "/api/chat");
     }
 
     @Test
@@ -111,10 +112,8 @@ class OllamaModelExecutorTest {
         });
         server.start();
 
-        OllamaModelExecutor executor = new OllamaModelExecutor();
-        executor.modelName = "llama-test";
-        executor.requestTimeoutSeconds = 5;
-        executor.apiUrl = "http://localhost:" + server.getAddress().getPort() + "/api/chat";
+        OllamaModelExecutor executor = new OllamaModelExecutor("llama-test", 5,
+                "http://localhost:" + server.getAddress().getPort() + "/api/chat");
 
         RuntimeException error = assertThrows(RuntimeException.class,
                 () -> executor.chat(new ModelRequest(List.of(Message.user("hi")), List.of())));
@@ -124,8 +123,8 @@ class OllamaModelExecutorTest {
 
     @Test
     void failsWhenNoModelConfiguredOrSupplied() {
-        OllamaModelExecutor executor = new OllamaModelExecutor();
-        // modelName left unset, mirroring a missing 'ollama.model.name'.
+        // modelName left null, mirroring a missing 'ollama.model.name'.
+        OllamaModelExecutor executor = new OllamaModelExecutor(null, 5, "http://localhost/api/chat");
 
         IllegalStateException error = assertThrows(IllegalStateException.class,
                 () -> executor.chat(new ModelRequest(List.of(Message.user("hi")), List.of())));
@@ -205,10 +204,8 @@ class OllamaModelExecutorTest {
         });
         server.start();
 
-        OllamaModelExecutor executor = new OllamaModelExecutor();
-        executor.modelName = "llama-test";
-        executor.requestTimeoutSeconds = 5;
-        executor.apiUrl = "http://localhost:" + server.getAddress().getPort() + "/api/chat";
+        OllamaModelExecutor executor = new OllamaModelExecutor("llama-test", 5,
+                "http://localhost:" + server.getAddress().getPort() + "/api/chat");
 
         AtomicReference<Throwable> error = new AtomicReference<>();
         executor.chatStream(new ModelRequest(List.of(Message.user("hi")), List.of()), new StreamListener() {
@@ -225,9 +222,9 @@ class OllamaModelExecutorTest {
     @Test
     void usesPerCallModelWhenNoDefaultConfigured() throws Exception {
         AtomicReference<String> body = new AtomicReference<>();
+        // no configured default; the model comes from the call
         OllamaModelExecutor executor = executorReturning(
-                "{\"message\":{\"role\":\"assistant\",\"content\":\"hi\"},\"done\":true,\"done_reason\":\"stop\"}", body);
-        executor.modelName = null; // no configured default; the model comes from the call
+                null, "{\"message\":{\"role\":\"assistant\",\"content\":\"hi\"},\"done\":true,\"done_reason\":\"stop\"}", body);
 
         executor.chat("llama-per-call", new ModelRequest(List.of(Message.user("Hi?")), List.of()));
 

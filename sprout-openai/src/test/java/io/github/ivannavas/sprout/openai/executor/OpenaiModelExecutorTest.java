@@ -39,6 +39,10 @@ class OpenaiModelExecutorTest {
     }
 
     private OpenaiModelExecutor executorReturning(String responseJson, AtomicReference<String> capturedBody) throws IOException {
+        return executorReturning("gpt-test", responseJson, capturedBody);
+    }
+
+    private OpenaiModelExecutor executorReturning(String modelName, String responseJson, AtomicReference<String> capturedBody) throws IOException {
         server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         server.createContext("/v1/chat/completions", exchange -> {
             byte[] requestBytes = exchange.getRequestBody().readAllBytes();
@@ -50,12 +54,8 @@ class OpenaiModelExecutorTest {
         });
         server.start();
 
-        OpenaiModelExecutor executor = new OpenaiModelExecutor();
-        executor.apiKey = "test-key";
-        executor.modelName = "gpt-test";
-        executor.requestTimeoutSeconds = 5;
-        executor.apiUrl = "http://localhost:" + server.getAddress().getPort() + "/v1/chat/completions";
-        return executor;
+        return new OpenaiModelExecutor("test-key", modelName, 5,
+                "http://localhost:" + server.getAddress().getPort() + "/v1/chat/completions");
     }
 
     @Test
@@ -109,11 +109,8 @@ class OpenaiModelExecutorTest {
         });
         server.start();
 
-        OpenaiModelExecutor executor = new OpenaiModelExecutor();
-        executor.apiKey = "test-key";
-        executor.modelName = "gpt-test";
-        executor.requestTimeoutSeconds = 5;
-        executor.apiUrl = "http://localhost:" + server.getAddress().getPort() + "/v1/chat/completions";
+        OpenaiModelExecutor executor = new OpenaiModelExecutor("test-key", "gpt-test", 5,
+                "http://localhost:" + server.getAddress().getPort() + "/v1/chat/completions");
 
         RuntimeException error = assertThrows(RuntimeException.class,
                 () -> executor.chat(new ModelRequest(List.of(Message.user("hi")), List.of())));
@@ -123,8 +120,8 @@ class OpenaiModelExecutorTest {
 
     @Test
     void failsFastWhenApiKeyMissing() {
-        OpenaiModelExecutor executor = new OpenaiModelExecutor();
-        executor.modelName = "gpt-test";
+        OpenaiModelExecutor executor = new OpenaiModelExecutor(null, "gpt-test", 5,
+                "http://localhost/v1/chat/completions");
 
         IllegalStateException error = assertThrows(IllegalStateException.class,
                 () -> executor.chat(new ModelRequest(List.of(Message.user("hi")), List.of())));
@@ -133,9 +130,9 @@ class OpenaiModelExecutorTest {
 
     @Test
     void failsWhenNoModelConfiguredOrSupplied() {
-        OpenaiModelExecutor executor = new OpenaiModelExecutor();
-        executor.apiKey = "test-key";
-        // modelName left unset, mirroring a missing 'openai.model.name'.
+        // modelName left null, mirroring a missing 'openai.model.name'.
+        OpenaiModelExecutor executor = new OpenaiModelExecutor("test-key", null, 5,
+                "http://localhost/v1/chat/completions");
 
         IllegalStateException error = assertThrows(IllegalStateException.class,
                 () -> executor.chat(new ModelRequest(List.of(Message.user("hi")), List.of())));
@@ -232,11 +229,8 @@ class OpenaiModelExecutorTest {
         });
         server.start();
 
-        OpenaiModelExecutor executor = new OpenaiModelExecutor();
-        executor.apiKey = "test-key";
-        executor.modelName = "gpt-test";
-        executor.requestTimeoutSeconds = 5;
-        executor.apiUrl = "http://localhost:" + server.getAddress().getPort() + "/v1/chat/completions";
+        OpenaiModelExecutor executor = new OpenaiModelExecutor("test-key", "gpt-test", 5,
+                "http://localhost:" + server.getAddress().getPort() + "/v1/chat/completions");
 
         AtomicReference<Throwable> error = new AtomicReference<>();
         executor.chatStream(new ModelRequest(List.of(Message.user("hi")), List.of()), new StreamListener() {
@@ -253,9 +247,9 @@ class OpenaiModelExecutorTest {
     @Test
     void usesPerCallModelWhenNoDefaultConfigured() throws Exception {
         AtomicReference<String> body = new AtomicReference<>();
+        // no configured default; the model comes from the call
         OpenaiModelExecutor executor = executorReturning(
-                "{\"choices\":[{\"message\":{\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}", body);
-        executor.modelName = null; // no configured default; the model comes from the call
+                null, "{\"choices\":[{\"message\":{\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}", body);
 
         executor.chat("gpt-per-call", new ModelRequest(List.of(Message.user("Hi?")), List.of()));
 

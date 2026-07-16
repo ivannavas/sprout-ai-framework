@@ -56,13 +56,18 @@ class PgVectorStoreTest {
     @Test
     void searchReturnsEmptyBeforeAnyIndexingWhenDimensionUnknown() {
         // No schema, no configured dimension: nothing could have been indexed, so no connection is opened.
-        assertTrue(new PgVectorStore().search(new float[]{1f, 2f}, 5).isEmpty());
+        assertTrue(newStore().search(new float[]{1f, 2f}, 5).isEmpty());
     }
 
     @Test
     void addRejectsDocumentWithoutEmbedding() {
-        PgVectorStore store = new PgVectorStore();
+        PgVectorStore store = newStore();
         assertThrows(IllegalArgumentException.class,
                 () -> store.add(io.github.ivannavas.sprout.model.Document.of("a", "text")));
+    }
+
+    // A store with the same defaults the container would inject from configuration.
+    private static PgVectorStore newStore() {
+        return new PgVectorStore("", "", "", "sprout_documents", 0, "cosine");
     }
 }

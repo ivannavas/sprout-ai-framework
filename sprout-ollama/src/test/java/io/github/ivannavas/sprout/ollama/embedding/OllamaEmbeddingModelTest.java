@@ -43,11 +43,8 @@ class OllamaEmbeddingModelTest {
         });
         server.start();
 
-        OllamaEmbeddingModel model = new OllamaEmbeddingModel();
-        model.modelName = "nomic-test";
-        model.requestTimeoutSeconds = 5;
-        model.apiUrl = "http://localhost:" + server.getAddress().getPort() + "/api/embed";
-        return model;
+        return new OllamaEmbeddingModel("nomic-test", 5,
+                "http://localhost:" + server.getAddress().getPort() + "/api/embed");
     }
 
     @Test
@@ -87,10 +84,8 @@ class OllamaEmbeddingModelTest {
         });
         server.start();
 
-        OllamaEmbeddingModel model = new OllamaEmbeddingModel();
-        model.modelName = "nomic-test";
-        model.requestTimeoutSeconds = 5;
-        model.apiUrl = "http://localhost:" + server.getAddress().getPort() + "/api/embed";
+        OllamaEmbeddingModel model = new OllamaEmbeddingModel("nomic-test", 5,
+                "http://localhost:" + server.getAddress().getPort() + "/api/embed");
 
         RuntimeException error = assertThrows(RuntimeException.class, () -> model.embed("hi"));
         assertTrue(error.getMessage().contains("404"));

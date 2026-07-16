@@ -2,6 +2,7 @@ package io.github.ivannavas.sprout.openai.embedding;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.ivannavas.sprout.annotation.Autowired;
 import io.github.ivannavas.sprout.annotation.Embedding;
 import io.github.ivannavas.sprout.annotation.Value;
 import io.github.ivannavas.sprout.embedding.EmbeddingModel;
@@ -25,22 +26,27 @@ import java.util.Map;
 @Embedding
 public class OpenaiEmbeddingModel extends EmbeddingModel {
 
-    @Value("${openai.api.key:}")
-    protected String apiKey;
-
-    @Value("${openai.embedding.model.name:text-embedding-3-small}")
-    protected String modelName;
-
-    @Value("${openai.timeout.seconds:60}")
-    protected int requestTimeoutSeconds;
-
-    @Value("${openai.embedding.api.url:https://api.openai.com/v1/embeddings}")
-    protected String apiUrl;
+    private final String apiKey;
+    private final String modelName;
+    private final int requestTimeoutSeconds;
+    private final String apiUrl;
 
     protected HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Autowired
+    public OpenaiEmbeddingModel(
+            @Value("${openai.api.key:}") String apiKey,
+            @Value("${openai.embedding.model.name:text-embedding-3-small}") String modelName,
+            @Value("${openai.timeout.seconds:60}") int requestTimeoutSeconds,
+            @Value("${openai.embedding.api.url:https://api.openai.com/v1/embeddings}") String apiUrl) {
+        this.apiKey = apiKey;
+        this.modelName = modelName;
+        this.requestTimeoutSeconds = requestTimeoutSeconds;
+        this.apiUrl = apiUrl;
+    }
 
     @Override
     public float[] embed(String text) {

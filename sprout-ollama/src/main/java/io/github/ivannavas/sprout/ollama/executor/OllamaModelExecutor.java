@@ -3,6 +3,7 @@ package io.github.ivannavas.sprout.ollama.executor;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.ivannavas.sprout.annotation.Autowired;
 import io.github.ivannavas.sprout.annotation.Model;
 import io.github.ivannavas.sprout.annotation.Value;
 import io.github.ivannavas.sprout.event.ModelRequestEvent;
@@ -42,19 +43,24 @@ import java.util.stream.Stream;
 @Model("ollama")
 public class OllamaModelExecutor extends ModelExecutor {
 
-    @Value("${ollama.model.name:}")
-    protected String modelName;
-
-    @Value("${ollama.timeout.seconds:120}")
-    protected int requestTimeoutSeconds;
-
-    @Value("${ollama.api.url:http://localhost:11434/api/chat}")
-    protected String apiUrl;
+    private final String modelName;
+    private final int requestTimeoutSeconds;
+    private final String apiUrl;
 
     protected HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Autowired
+    public OllamaModelExecutor(
+            @Value("${ollama.model.name:}") String modelName,
+            @Value("${ollama.timeout.seconds:120}") int requestTimeoutSeconds,
+            @Value("${ollama.api.url:http://localhost:11434/api/chat}") String apiUrl) {
+        this.modelName = modelName;
+        this.requestTimeoutSeconds = requestTimeoutSeconds;
+        this.apiUrl = apiUrl;
+    }
 
     @Override
     public ModelResponse chat(ModelRequest request) {

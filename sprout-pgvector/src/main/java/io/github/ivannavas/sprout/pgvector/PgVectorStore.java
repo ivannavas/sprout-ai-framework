@@ -3,6 +3,7 @@ package io.github.ivannavas.sprout.pgvector;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.ivannavas.sprout.abstrct.AbstractVectorStore;
+import io.github.ivannavas.sprout.annotation.Autowired;
 import io.github.ivannavas.sprout.annotation.VectorStore;
 import io.github.ivannavas.sprout.annotation.Value;
 import io.github.ivannavas.sprout.model.Document;
@@ -38,25 +39,30 @@ import java.util.Map;
 @VectorStore
 public class PgVectorStore implements AbstractVectorStore {
 
-    @Value("${pgvector.url:}")
-    protected String url;
-
-    @Value("${pgvector.username:}")
-    protected String username;
-
-    @Value("${pgvector.password:}")
-    protected String password;
-
-    @Value("${pgvector.table:sprout_documents}")
-    protected String table;
-
-    @Value("${pgvector.dimension:0}")
-    protected int dimension;
-
-    @Value("${pgvector.distance:cosine}")
-    protected String distance;
+    private final String url;
+    private final String username;
+    private final String password;
+    private final String table;
+    private final int dimension;
+    private final String distance;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Autowired
+    public PgVectorStore(
+            @Value("${pgvector.url:}") String url,
+            @Value("${pgvector.username:}") String username,
+            @Value("${pgvector.password:}") String password,
+            @Value("${pgvector.table:sprout_documents}") String table,
+            @Value("${pgvector.dimension:0}") int dimension,
+            @Value("${pgvector.distance:cosine}") String distance) {
+        this.url = url;
+        this.username = username;
+        this.password = password;
+        this.table = table;
+        this.dimension = dimension;
+        this.distance = distance;
+    }
 
     // Guards lazy schema creation: the extension/table/index are created once, on first use.
     private volatile boolean schemaReady;

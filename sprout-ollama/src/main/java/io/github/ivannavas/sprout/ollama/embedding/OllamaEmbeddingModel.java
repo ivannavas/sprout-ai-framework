@@ -2,6 +2,7 @@ package io.github.ivannavas.sprout.ollama.embedding;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.ivannavas.sprout.annotation.Autowired;
 import io.github.ivannavas.sprout.annotation.Embedding;
 import io.github.ivannavas.sprout.annotation.Value;
 import io.github.ivannavas.sprout.embedding.EmbeddingModel;
@@ -27,19 +28,24 @@ import java.util.Map;
 @Embedding
 public class OllamaEmbeddingModel extends EmbeddingModel {
 
-    @Value("${ollama.embedding.model.name:nomic-embed-text}")
-    protected String modelName;
-
-    @Value("${ollama.embedding.timeout.seconds:60}")
-    protected int requestTimeoutSeconds;
-
-    @Value("${ollama.embedding.api.url:http://localhost:11434/api/embed}")
-    protected String apiUrl;
+    private final String modelName;
+    private final int requestTimeoutSeconds;
+    private final String apiUrl;
 
     protected HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Autowired
+    public OllamaEmbeddingModel(
+            @Value("${ollama.embedding.model.name:nomic-embed-text}") String modelName,
+            @Value("${ollama.embedding.timeout.seconds:60}") int requestTimeoutSeconds,
+            @Value("${ollama.embedding.api.url:http://localhost:11434/api/embed}") String apiUrl) {
+        this.modelName = modelName;
+        this.requestTimeoutSeconds = requestTimeoutSeconds;
+        this.apiUrl = apiUrl;
+    }
 
     @Override
     public float[] embed(String text) {

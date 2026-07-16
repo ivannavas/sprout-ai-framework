@@ -3,6 +3,7 @@ package io.github.ivannavas.sprout.anthropic.executor;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.ivannavas.sprout.annotation.Autowired;
 import io.github.ivannavas.sprout.annotation.Model;
 import io.github.ivannavas.sprout.annotation.Value;
 import io.github.ivannavas.sprout.event.ModelRequestEvent;
@@ -41,20 +42,11 @@ import java.util.stream.Stream;
 @Model("anthropic")
 public class AnthropicModelExecutor extends ModelExecutor {
 
-    @Value("${anthropic.api.key:}")
-    protected String apiKey;
-
-    @Value("${anthropic.model.name:}")
-    protected String modelName;
-
-    @Value("${anthropic.max.tokens:4096}")
-    protected int maxTokens;
-
-    @Value("${anthropic.timeout.seconds:60}")
-    protected int requestTimeoutSeconds;
-
-    @Value("${anthropic.api.url:https://api.anthropic.com/v1/messages}")
-    protected String apiUrl;
+    private final String apiKey;
+    private final String modelName;
+    private final int maxTokens;
+    private final int requestTimeoutSeconds;
+    private final String apiUrl;
 
     private static final String ANTHROPIC_VERSION = "2023-06-01";
 
@@ -62,6 +54,20 @@ public class AnthropicModelExecutor extends ModelExecutor {
             .connectTimeout(Duration.ofSeconds(10))
             .build();
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Autowired
+    public AnthropicModelExecutor(
+            @Value("${anthropic.api.key:}") String apiKey,
+            @Value("${anthropic.model.name:}") String modelName,
+            @Value("${anthropic.max.tokens:4096}") int maxTokens,
+            @Value("${anthropic.timeout.seconds:60}") int requestTimeoutSeconds,
+            @Value("${anthropic.api.url:https://api.anthropic.com/v1/messages}") String apiUrl) {
+        this.apiKey = apiKey;
+        this.modelName = modelName;
+        this.maxTokens = maxTokens;
+        this.requestTimeoutSeconds = requestTimeoutSeconds;
+        this.apiUrl = apiUrl;
+    }
 
     @Override
     public ModelResponse chat(ModelRequest request) {

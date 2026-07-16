@@ -1,5 +1,6 @@
 package io.github.ivannavas.sprout.spring.configdata;
 
+import io.github.ivannavas.sprout.annotation.Autowired;
 import io.github.ivannavas.sprout.annotation.Service;
 import io.github.ivannavas.sprout.annotation.Value;
 
@@ -7,8 +8,12 @@ import io.github.ivannavas.sprout.annotation.Value;
 @Service
 public class ConfigDataService {
 
-    @Value("${configdata.value}")
-    private String value;
+    private final String value;
+
+    @Autowired
+    public ConfigDataService(@Value("${configdata.value}") String value) {
+        this.value = value;
+    }
 
     public String value() {
         return value;

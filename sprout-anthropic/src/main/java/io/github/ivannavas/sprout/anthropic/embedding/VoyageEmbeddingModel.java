@@ -2,6 +2,7 @@ package io.github.ivannavas.sprout.anthropic.embedding;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.ivannavas.sprout.annotation.Autowired;
 import io.github.ivannavas.sprout.annotation.Embedding;
 import io.github.ivannavas.sprout.annotation.Value;
 import io.github.ivannavas.sprout.embedding.EmbeddingModel;
@@ -26,22 +27,27 @@ import java.util.Map;
 @Embedding
 public class VoyageEmbeddingModel extends EmbeddingModel {
 
-    @Value("${voyage.api.key:}")
-    protected String apiKey;
-
-    @Value("${voyage.embedding.model.name:voyage-3}")
-    protected String modelName;
-
-    @Value("${voyage.timeout.seconds:60}")
-    protected int requestTimeoutSeconds;
-
-    @Value("${voyage.api.url:https://api.voyageai.com/v1/embeddings}")
-    protected String apiUrl;
+    private final String apiKey;
+    private final String modelName;
+    private final int requestTimeoutSeconds;
+    private final String apiUrl;
 
     protected HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Autowired
+    public VoyageEmbeddingModel(
+            @Value("${voyage.api.key:}") String apiKey,
+            @Value("${voyage.embedding.model.name:voyage-3}") String modelName,
+            @Value("${voyage.timeout.seconds:60}") int requestTimeoutSeconds,
+            @Value("${voyage.api.url:https://api.voyageai.com/v1/embeddings}") String apiUrl) {
+        this.apiKey = apiKey;
+        this.modelName = modelName;
+        this.requestTimeoutSeconds = requestTimeoutSeconds;
+        this.apiUrl = apiUrl;
+    }
 
     @Override
     public float[] embed(String text) {

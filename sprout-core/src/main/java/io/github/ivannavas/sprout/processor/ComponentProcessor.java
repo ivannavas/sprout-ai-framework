@@ -129,10 +129,16 @@ public class ComponentProcessor {
         Object[] args = new Object[parameters.length];
         for (int i = 0; i < parameters.length; i++) {
             Parameter param = parameters[i];
-            args[i] = resolveDependency(
-                    DiAnnotations.qualifier(param),
-                    param.getType(),
-                    "parameter " + param.getName() + " in constructor of " + ctor.getDeclaringClass());
+            // A @Value parameter binds configuration (like a @Value field); everything else is a bean.
+            if (DiAnnotations.isValueAnnotated(param)) {
+                String resolved = sproutContainer.resolveExpression(DiAnnotations.valueExpression(param));
+                args[i] = PropertyConverter.convert(resolved, param.getType());
+            } else {
+                args[i] = resolveDependency(
+                        DiAnnotations.qualifier(param),
+                        param.getType(),
+                        "parameter " + param.getName() + " in constructor of " + ctor.getDeclaringClass());
+            }
         }
         return args;
     }
