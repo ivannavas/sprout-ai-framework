@@ -52,7 +52,9 @@ Annotate classes and let the container discover, instantiate and wire them:
 - `@PostConstruct` runs initialisation once dependencies are injected.
 - `@Value` and `@Configuration`/`@ConfigurationProperty` bind configuration, with Spring-style
   `${key:default}` placeholders resolved against `sprout.properties`, system properties and
-  environment variables.
+  environment variables. `@Value` works on a field or on an `@Autowired` constructor parameter, so a
+  component can take all its dependencies and configuration through one constructor and keep its
+  fields `final`.
 
 The richer stereotypes — `@Service`, `@Model`, `@Agent`, `@ConversationStore`, `@Mcp` — are all
 meta-annotated with `@Component`. So **a model and an agent are ordinary managed singletons too**:
