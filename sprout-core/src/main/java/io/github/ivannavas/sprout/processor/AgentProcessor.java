@@ -98,16 +98,29 @@ public class AgentProcessor extends ComponentProcessor {
         }
     }
 
+    /**
+     * Collects the agent's {@code @Tool} methods, walking up the class hierarchy so an agent can inherit
+     * tools from a base class (e.g. a shared {@code DatabaseReader} of lookup tools). The walk starts at
+     * the agent and moves towards {@link Object}, so the most-derived declaration of a tool name wins:
+     * a subclass can re-declare a tool to override the one it inherits.
+     */
     private Map<String, Method> collectToolMethods() {
         Map<String, Method> tools = new HashMap<>();
-        for (Method method : component.getDeclaredMethods()) {
-            Tool tool = method.getAnnotation(Tool.class);
-            if (tool == null) {
-                continue;
+        for (Class<?> type = component; type != null && type != Object.class; type = type.getSuperclass()) {
+            for (Method method : type.getDeclaredMethods()) {
+                // Bridge/synthetic methods are compiler-generated duplicates (e.g. from a narrowed return
+                // type); the real declaration is found on its own.
+                if (method.isBridge() || method.isSynthetic()) {
+                    continue;
+                }
+                Tool tool = method.getAnnotation(Tool.class);
+                if (tool == null) {
+                    continue;
+                }
+                method.setAccessible(true);
+                String name = tool.name().isEmpty() ? method.getName() : tool.name();
+                tools.putIfAbsent(name, method);
             }
-            method.setAccessible(true);
-            String name = tool.name().isEmpty() ? method.getName() : tool.name();
-            tools.put(name, method);
         }
         return tools;
     }
