@@ -13,6 +13,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -91,9 +92,9 @@ public class ComponentProcessor {
     }
 
     /**
-     * Creates the singleton instance (constructor injection if a constructor is {@code @Autowired},
-     * otherwise the no-arg constructor) and registers it. Idempotent: returns the existing singleton
-     * if already built. Override to construct or register additional specialised beans.
+     * Creates the singleton instance by constructor injection (see {@link #injectableConstructor()}) and
+     * registers it. Idempotent: returns the existing singleton if already built. Override to construct or
+     * register additional specialised beans.
      */
     public Object instantiate() {
         Object existing = sproutContainer.getSingleton(component);
@@ -101,27 +102,48 @@ public class ComponentProcessor {
             return existing;
         }
 
-        for (Constructor<?> ctor : component.getDeclaredConstructors()) {
-            if (DiAnnotations.isAutowired(ctor)) {
-                try {
-                    Object[] args = resolveConstructorArgs(ctor);
-                    ctor.setAccessible(true);
-                    Object instance = ctor.newInstance(args);
-                    sproutContainer.registerSingleton(component, instance);
-                    return instance;
-                } catch (Exception e) {
-                    throw new RuntimeException("Sprout: failed constructor injection for " + component, e);
-                }
-            }
-        }
-
+        Constructor<?> ctor = injectableConstructor();
         try {
-            Object instance = component.getConstructor().newInstance();
+            Object[] args = resolveConstructorArgs(ctor);
+            ctor.setAccessible(true);
+            Object instance = ctor.newInstance(args);
             sproutContainer.registerSingleton(component, instance);
             return instance;
         } catch (Exception e) {
             throw new RuntimeException("Sprout: failed instantiating component " + component, e);
         }
+    }
+
+    /**
+     * The constructor the component is built with. A component declaring a single constructor gets it
+     * injected without having to say so — {@code @Autowired} is only needed to pick one out of several.
+     * The rules, in order:
+     * <ol>
+     *   <li>a constructor marked {@code @Autowired};</li>
+     *   <li>the only constructor, whatever its arguments (the no-arg case falls out of this);</li>
+     *   <li>the no-arg one, when several constructors compete and none is marked.</li>
+     * </ol>
+     * Several constructors, none marked and none no-arg, is ambiguous: the component must say which.
+     */
+    private Constructor<?> injectableConstructor() {
+        Constructor<?>[] ctors = component.getDeclaredConstructors();
+
+        for (Constructor<?> ctor : ctors) {
+            if (DiAnnotations.isAutowired(ctor)) {
+                return ctor;
+            }
+        }
+        if (ctors.length == 1) {
+            return ctors[0];
+        }
+        for (Constructor<?> ctor : ctors) {
+            if (ctor.getParameterCount() == 0) {
+                return ctor;
+            }
+        }
+        throw new IllegalStateException("Sprout: cannot instantiate " + component + ": it declares "
+                + ctors.length + " constructors, none of them no-arg, so which one to inject is ambiguous."
+                + " Mark the intended one with @Autowired.");
     }
 
     private Object[] resolveConstructorArgs(Constructor<?> ctor) {
@@ -150,19 +172,7 @@ public class ComponentProcessor {
      */
     public void process(Object instance) {
         processAnnotations(instance);
-
-        for (Method method : component.getDeclaredMethods()) {
-            for (Annotation ann : method.getAnnotations()) {
-                ComponentMethod componentMethod = componentMethodsByAnnotation.get(ann.annotationType());
-                if (componentMethod != null && componentMethod.consumer() != null) {
-                    componentMethod.consumer().accept(method);
-                }
-            }
-            if (DiAnnotations.isPostConstruct(method)) {
-                processPostConstruct(method, currentInstance);
-            }
-        }
-
+        processMethods();
         processFields();
     }
 
@@ -182,23 +192,83 @@ public class ComponentProcessor {
         }
     }
 
-    private void processFields() {
+    /**
+     * Runs the method handlers and {@code @PostConstruct} across the component's class hierarchy, so a
+     * component inherits the lifecycle declared by its base classes.
+     *
+     * <p>Unlike fields, methods override: the same signature on a base class is the <em>same</em> method,
+     * and reflection dispatches to the most-derived implementation anyway. Each signature is therefore
+     * handled once, and — as with {@code @Tool} — the most-derived declaration decides: a subclass that
+     * re-declares an inherited {@code @PostConstruct} without the annotation opts out of it.
+     */
+    private void processMethods() {
+        Set<String> handled = new HashSet<>();
 
-        for (Field field : component.getDeclaredFields()) {
-            for (Annotation ann : field.getAnnotations()) {
-                ComponentField componentField = componentFieldsByAnnotation.get(ann.annotationType());
-                if (componentField != null && componentField.consumer() != null) {
-                    componentField.consumer().accept(field);
+        for (Class<?> type = component; type != null && type != Object.class; type = type.getSuperclass()) {
+            for (Method method : type.getDeclaredMethods()) {
+                // Compiler-generated duplicates; the real declaration is visited on its own.
+                if (method.isBridge() || method.isSynthetic()) {
+                    continue;
+                }
+                // Private and static methods are never overridden, so each declaration stands alone.
+                if (isOverridable(method) && !handled.add(signature(method))) {
+                    continue;
+                }
+                for (Annotation ann : method.getAnnotations()) {
+                    ComponentMethod componentMethod = componentMethodsByAnnotation.get(ann.annotationType());
+                    if (componentMethod != null && componentMethod.consumer() != null) {
+                        componentMethod.consumer().accept(method);
+                    }
+                }
+                if (DiAnnotations.isPostConstruct(method)) {
+                    processPostConstruct(method, currentInstance);
                 }
             }
-            // Built-in wiring, tolerant of every registered flavour of each annotation (Sprout's own
-            // plus any a bridging module has contributed).
-            if (DiAnnotations.isValueAnnotated(field)) {
-                processValue(field);
-            } else if (DiAnnotations.isAutowired(field)) {
-                processAutowired(field);
+        }
+    }
+
+    /**
+     * Runs the field handlers and the built-in {@code @Autowired}/{@code @Value} wiring across the
+     * component's class hierarchy, so a base class can declare injected fields.
+     *
+     * <p>Fields do not override: a subclass field shadowing one of its base class is separate storage, so
+     * every declaration is wired on its own.
+     */
+    private void processFields() {
+
+        for (Class<?> type = component; type != null && type != Object.class; type = type.getSuperclass()) {
+            for (Field field : type.getDeclaredFields()) {
+                if (field.isSynthetic()) {
+                    continue;
+                }
+                for (Annotation ann : field.getAnnotations()) {
+                    ComponentField componentField = componentFieldsByAnnotation.get(ann.annotationType());
+                    if (componentField != null && componentField.consumer() != null) {
+                        componentField.consumer().accept(field);
+                    }
+                }
+                // Built-in wiring, tolerant of every registered flavour of each annotation (Sprout's own
+                // plus any a bridging module has contributed).
+                if (DiAnnotations.isValueAnnotated(field)) {
+                    processValue(field);
+                } else if (DiAnnotations.isAutowired(field)) {
+                    processAutowired(field);
+                }
             }
         }
+    }
+
+    private static boolean isOverridable(Method method) {
+        int modifiers = method.getModifiers();
+        return !Modifier.isPrivate(modifiers) && !Modifier.isStatic(modifiers);
+    }
+
+    private static String signature(Method method) {
+        StringBuilder signature = new StringBuilder(method.getName());
+        for (Class<?> parameter : method.getParameterTypes()) {
+            signature.append('|').append(parameter.getName());
+        }
+        return signature.toString();
     }
 
     private void processPostConstruct(Method method, Object instance) {
