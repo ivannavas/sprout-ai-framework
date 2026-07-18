@@ -166,14 +166,18 @@ public class ComponentProcessor {
     }
 
     /**
-     * Runs the component's lifecycle on the wired instance: class-level annotation handlers, then
-     * method handlers (e.g. {@code @PostConstruct}), then field handlers (e.g. {@code @Autowired},
-     * {@code @Value}). Invoked by the container after every component has been instantiated.
+     * Runs the component's lifecycle on the wired instance: class-level annotation handlers, then field
+     * handlers (e.g. {@code @Autowired}, {@code @Value}), then method handlers (e.g. {@code @PostConstruct}).
+     * Invoked by the container after every component has been instantiated.
+     *
+     * <p>Fields are wired before the callbacks run because that is what {@code @PostConstruct} is for:
+     * deriving state from what was injected. A callback that fired first would see its injected fields
+     * still null. This matches Spring's ordering.
      */
     public void process(Object instance) {
         processAnnotations(instance);
-        processMethods();
         processFields();
+        processMethods();
     }
 
     /**
