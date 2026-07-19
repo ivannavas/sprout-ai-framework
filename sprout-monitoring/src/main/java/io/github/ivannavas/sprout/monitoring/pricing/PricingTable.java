@@ -1,5 +1,7 @@
 package io.github.ivannavas.sprout.monitoring.pricing;
 
+import io.github.ivannavas.sprout.model.TokenUsage;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
@@ -16,9 +18,29 @@ import java.util.function.Function;
  */
 public final class PricingTable {
 
-    /** A model's price per one million input and output tokens. */
-    public record Rate(double inputPer1M, double outputPer1M) {
+    /**
+     * A model's price per one million input and output tokens, plus what cached input costs relative
+     * to fresh input. Cache pricing is expressed as multipliers rather than absolute rates so that
+     * pricing a model stays a two-key job: a cache read is a fraction of the input price and a write a
+     * premium over it, and those ratios hold across models even as the base rates change.
+     *
+     * <p>The defaults are Anthropic's published ratios. Override them per model when a provider prices
+     * caching differently.
+     */
+    public record Rate(double inputPer1M, double outputPer1M,
+                       double cacheReadMultiplier, double cacheWriteMultiplier) {
+
+        /** A cache read costs a tenth of fresh input. */
+        public static final double DEFAULT_CACHE_READ_MULTIPLIER = 0.1;
+        /** Writing an entry costs a quarter more than fresh input; it pays back on the second read. */
+        public static final double DEFAULT_CACHE_WRITE_MULTIPLIER = 1.25;
+
         public static final Rate FREE = new Rate(0, 0);
+
+        /** A rate priced only on input and output, using the default cache multipliers. */
+        public Rate(double inputPer1M, double outputPer1M) {
+            this(inputPer1M, outputPer1M, DEFAULT_CACHE_READ_MULTIPLIER, DEFAULT_CACHE_WRITE_MULTIPLIER);
+        }
     }
 
     /** Configuration prefix for per-model rates: {@code sprout.monitoring.pricing.<model>.<input|output>}. */
@@ -54,6 +76,20 @@ public final class PricingTable {
                 + outputTokens / 1_000_000.0 * rate.outputPer1M();
     }
 
+    /**
+     * The cost of a call, billing cached input at its own rate. Prefer this over
+     * {@link #costOf(String, long, long)} whenever prompt caching may be in play: that overload sees
+     * only the uncached remainder and so reports a caching run as far cheaper than it was.
+     */
+    public double costOf(String modelName, TokenUsage usage) {
+        Rate rate = rateFor(modelName);
+        double inputPerToken = rate.inputPer1M() / 1_000_000.0;
+        return usage.inputTokens() * inputPerToken
+                + usage.cacheReadTokens() * inputPerToken * rate.cacheReadMultiplier()
+                + usage.cacheWriteTokens() * inputPerToken * rate.cacheWriteMultiplier()
+                + usage.outputTokens() / 1_000_000.0 * rate.outputPer1M();
+    }
+
     private Rate rateFor(String modelName) {
         Rate override = overrides.get(modelName);
         if (override != null) {
@@ -61,7 +97,26 @@ public final class PricingTable {
         }
         double input = parse(properties.apply(PREFIX + modelName + ".input"));
         double output = parse(properties.apply(PREFIX + modelName + ".output"));
-        return input == 0 && output == 0 ? Rate.FREE : new Rate(input, output);
+        if (input == 0 && output == 0) {
+            return Rate.FREE;
+        }
+        return new Rate(input, output,
+                parse(properties.apply(PREFIX + modelName + ".cache-read-multiplier"),
+                        Rate.DEFAULT_CACHE_READ_MULTIPLIER),
+                parse(properties.apply(PREFIX + modelName + ".cache-write-multiplier"),
+                        Rate.DEFAULT_CACHE_WRITE_MULTIPLIER));
+    }
+
+    /** Parses {@code value}, falling back to {@code fallback} when it is absent or unreadable. */
+    private static double parse(String value, double fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            return Double.parseDouble(value.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
     }
 
     private static double parse(String value) {

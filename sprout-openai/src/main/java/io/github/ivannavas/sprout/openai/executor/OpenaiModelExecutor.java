@@ -38,6 +38,17 @@ import java.util.stream.Stream;
  * <p>{@code chatStream} is a real token-by-token stream: it sets {@code stream: true} and consumes
  * the Server-Sent Events response, forwarding each content delta to {@link StreamListener#onToken}
  * as it arrives and assembling the full {@link ModelResponse} for {@link StreamListener#onComplete}.
+ *
+ * <h2>Prompt caching</h2>
+ *
+ * <p>There is nothing to switch on here, and no equivalent of {@code anthropic.cache.enabled}: OpenAI
+ * caches long prompt prefixes automatically and exposes no request parameter to control it. What this
+ * executor does is <em>report</em> it, so a cache hit is as visible as it is on Anthropic — see
+ * {@link io.github.ivannavas.sprout.model.TokenUsage#cacheReadTokens()}.
+ *
+ * <p>The same prefix rule still governs whether it works: a prompt that varies at the front on every
+ * call will not hit, however long it is. Short prompts do not cache at all — OpenAI applies a minimum
+ * prefix length.
  */
 @Model("openai")
 public class OpenaiModelExecutor extends ModelExecutor {
@@ -149,7 +160,7 @@ public class OpenaiModelExecutor extends ModelExecutor {
                 JsonNode node = objectMapper.readTree(data);
                 if (node.has("usage") && !node.get("usage").isNull()) {
                     JsonNode u = node.get("usage");
-                    usage = new TokenUsage(u.get("prompt_tokens").asLong(), u.get("completion_tokens").asLong());
+                    usage = toTokenUsage(u);
                 }
 
                 JsonNode choices = node.get("choices");
@@ -214,6 +225,28 @@ public class OpenaiModelExecutor extends ModelExecutor {
                     + "(chat/chatStream overloads that take a model name) or configure a default via "
                     + "'openai.model.name'.");
         }
+    }
+
+    /**
+     * Reads a {@code usage} object, splitting the cached share out of {@code prompt_tokens}.
+     *
+     * <p>OpenAI counts cached tokens <em>inside</em> {@code prompt_tokens}, where Anthropic reports
+     * them alongside its input count. Subtracting here makes {@code inputTokens} mean the same thing
+     * for both — the part of the prompt that was actually processed — so
+     * {@link TokenUsage#totalInputTokens()} is the prompt size either way instead of double-counting
+     * the cached tokens on OpenAI.
+     *
+     * <p>There is no cache-write count to report: OpenAI populates the cache as a side effect of
+     * serving a request and does not bill or expose it separately.
+     */
+    private static TokenUsage toTokenUsage(JsonNode usage) {
+        long promptTokens = usage.path("prompt_tokens").asLong(0);
+        long cachedTokens = usage.path("prompt_tokens_details").path("cached_tokens").asLong(0);
+        return new TokenUsage(
+                promptTokens - cachedTokens,
+                usage.path("completion_tokens").asLong(0),
+                0,
+                cachedTokens);
     }
 
     private Map<String, Object> buildRequestBody(String modelName, ModelRequest request) {
@@ -301,8 +334,7 @@ public class OpenaiModelExecutor extends ModelExecutor {
 
         TokenUsage usage = TokenUsage.ZERO;
         if (root.has("usage") && !root.get("usage").isNull()) {
-            JsonNode u = root.get("usage");
-            usage = new TokenUsage(u.get("prompt_tokens").asLong(), u.get("completion_tokens").asLong());
+            usage = toTokenUsage(root.get("usage"));
         }
 
         FinishReason finishReason = switch (choice.get("finish_reason").asText()) {

@@ -39,6 +39,17 @@ import java.util.stream.Stream;
  * (one object per line rather than Server-Sent Events), so each {@code message.content} fragment is
  * forwarded to {@link StreamListener#onToken} as it arrives and the full {@link ModelResponse} is
  * assembled for {@link StreamListener#onComplete}.
+ *
+ * <h2>Prompt caching</h2>
+ *
+ * <p>Deliberately absent, unlike the hosted backends. Ollama keeps the KV cache of a loaded model in
+ * memory and reuses whatever prefix a new prompt shares with the last one, entirely server-side;
+ * {@code /api/chat} has no request parameter to control this and nothing to bill, so there is no
+ * {@code ollama.cache.enabled} to match {@code anthropic.cache.enabled}.
+ *
+ * <p>Consequently the cache fields of {@link io.github.ivannavas.sprout.model.TokenUsage} stay at
+ * zero here. That is not a reporting gap standing in for a missing feature: a reused prefix shows up
+ * as a smaller {@code prompt_eval_count}, because Ollama simply does not re-evaluate those tokens.
  */
 @Model("ollama")
 public class OllamaModelExecutor extends ModelExecutor {

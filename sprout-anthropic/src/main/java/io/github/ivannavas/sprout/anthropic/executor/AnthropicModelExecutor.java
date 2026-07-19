@@ -38,6 +38,24 @@ import java.util.stream.Stream;
  * <p>{@code chatStream} is a real token-by-token stream: it sets {@code stream: true} and consumes
  * the Server-Sent Events response, forwarding each {@code text_delta} to {@link StreamListener#onToken}
  * as it arrives and assembling the full {@link ModelResponse} for {@link StreamListener#onComplete}.
+ *
+ * <h2>Prompt caching</h2>
+ *
+ * <p>On by default; set {@code anthropic.cache.enabled=false} to turn it off. Two breakpoints are
+ * placed per request: one closing the system prompt, which also covers the tool schemas since they
+ * render ahead of it, and one on the newest message, so a growing conversation is read back from
+ * cache instead of reprocessed. That is what makes the agent loop affordable — without it every
+ * iteration pays full price for the whole transcript again.
+ *
+ * <p>Caching is a prefix match, so anything that varies inside the prefix from one call to the next —
+ * a timestamp in the system prompt, a tool list built in a different order — silently prevents a hit.
+ * {@link io.github.ivannavas.sprout.model.TokenUsage#cacheReadTokens()} is how you confirm it is
+ * working: if it stays at zero across calls that share a prefix, something in that prefix is moving.
+ *
+ * <p>Leaving it on is the right call for agents and any repeated prefix. It is not free in every
+ * case: a cache write costs more than plain input, so one-shot calls that never reuse their prefix
+ * pay a premium for a cache nothing reads. Short prompts are unaffected either way — a prefix below
+ * the model's minimum cacheable size is silently not cached rather than rejected.
  */
 @Model("anthropic")
 public class AnthropicModelExecutor extends ModelExecutor {
@@ -47,8 +65,10 @@ public class AnthropicModelExecutor extends ModelExecutor {
     private final int maxTokens;
     private final int requestTimeoutSeconds;
     private final String apiUrl;
+    private final boolean cacheEnabled;
 
     private static final String ANTHROPIC_VERSION = "2023-06-01";
+    private static final Map<String, Object> EPHEMERAL = Map.of("type", "ephemeral");
 
     protected HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
@@ -61,12 +81,20 @@ public class AnthropicModelExecutor extends ModelExecutor {
             @Value("${anthropic.model.name:}") String modelName,
             @Value("${anthropic.max.tokens:4096}") int maxTokens,
             @Value("${anthropic.timeout.seconds:60}") int requestTimeoutSeconds,
-            @Value("${anthropic.api.url:https://api.anthropic.com/v1/messages}") String apiUrl) {
+            @Value("${anthropic.api.url:https://api.anthropic.com/v1/messages}") String apiUrl,
+            @Value("${anthropic.cache.enabled:true}") boolean cacheEnabled) {
         this.apiKey = apiKey;
         this.modelName = modelName;
         this.maxTokens = maxTokens;
         this.requestTimeoutSeconds = requestTimeoutSeconds;
         this.apiUrl = apiUrl;
+        this.cacheEnabled = cacheEnabled;
+    }
+
+    /** Constructs the executor with prompt caching on, as {@code anthropic.cache.enabled} defaults to. */
+    public AnthropicModelExecutor(String apiKey, String modelName, int maxTokens,
+                                  int requestTimeoutSeconds, String apiUrl) {
+        this(apiKey, modelName, maxTokens, requestTimeoutSeconds, apiUrl, true);
     }
 
     @Override
@@ -134,8 +162,7 @@ public class AnthropicModelExecutor extends ModelExecutor {
 
         StringBuilder text = new StringBuilder();
         Map<Integer, ToolCallBuilder> toolBlocks = new LinkedHashMap<>();
-        long inputTokens = 0;
-        long outputTokens = 0;
+        TokenUsage usage = TokenUsage.ZERO;
         FinishReason finishReason = FinishReason.STOP;
 
         try (Stream<String> lines = response.body()) {
@@ -153,11 +180,7 @@ public class AnthropicModelExecutor extends ModelExecutor {
                 JsonNode node = objectMapper.readTree(data);
                 String type = node.path("type").asText("");
                 switch (type) {
-                    case "message_start" -> {
-                        JsonNode usage = node.path("message").path("usage");
-                        if (usage.has("input_tokens")) inputTokens = usage.get("input_tokens").asLong();
-                        if (usage.has("output_tokens")) outputTokens = usage.get("output_tokens").asLong();
-                    }
+                    case "message_start" -> usage = toTokenUsage(node.path("message").path("usage"));
                     case "content_block_start" -> {
                         JsonNode block = node.path("content_block");
                         if ("tool_use".equals(block.path("type").asText())) {
@@ -189,8 +212,14 @@ public class AnthropicModelExecutor extends ModelExecutor {
                         if (delta.has("stop_reason") && !delta.get("stop_reason").isNull()) {
                             finishReason = mapStopReason(delta.get("stop_reason").asText());
                         }
+                        // Only the output count is refreshed here; the input and cache counts are
+                        // final as of message_start and must survive this update.
                         if (node.path("usage").has("output_tokens")) {
-                            outputTokens = node.path("usage").get("output_tokens").asLong();
+                            usage = new TokenUsage(
+                                    usage.inputTokens(),
+                                    node.path("usage").get("output_tokens").asLong(),
+                                    usage.cacheWriteTokens(),
+                                    usage.cacheReadTokens());
                         }
                     }
                     default -> {
@@ -202,8 +231,7 @@ public class AnthropicModelExecutor extends ModelExecutor {
 
         List<ToolCall> assembled = toolBlocks.values().stream().map(ToolCallBuilder::build).toList();
         Message message = new Message(Role.ASSISTANT, text.isEmpty() ? null : text.toString(), assembled, null);
-        ModelResponse modelResponse = new ModelResponse(
-                message, new TokenUsage(inputTokens, outputTokens), finishReason);
+        ModelResponse modelResponse = new ModelResponse(message, usage, finishReason);
 
         publish(new ModelResponseEvent(executorName, modelResponse));
         assembled.forEach(listener::onToolCall);
@@ -234,18 +262,70 @@ public class AnthropicModelExecutor extends ModelExecutor {
                 .filter(m -> m.role() != Role.SYSTEM)
                 .toList();
 
-        if (!systemMessages.isEmpty()) {
-            body.put("system", systemMessages.stream()
-                    .map(Message::content)
-                    .reduce("", (a, b) -> a.isEmpty() ? b : a + "\n" + b));
+        String system = systemMessages.stream()
+                .map(Message::content)
+                .reduce("", (a, b) -> a.isEmpty() ? b : a + "\n" + b);
+
+        List<Map<String, Object>> tools = request.tools().stream().map(this::toToolMap).toList();
+        List<Map<String, Object>> messages = conversationMessages.stream()
+                .map(this::toMessageMap)
+                .collect(Collectors.toCollection(ArrayList::new));
+
+        if (cacheEnabled) {
+            // The request renders as tools -> system -> messages, so a single breakpoint at the end of
+            // the system prompt caches the tool schemas along with it. Only when there is no system
+            // prompt do the tools need one of their own.
+            if (!system.isEmpty()) {
+                body.put("system", List.of(withCacheControl(textBlock(system))));
+            } else if (!tools.isEmpty()) {
+                tools = new ArrayList<>(tools);
+                tools.set(tools.size() - 1, withCacheControl(tools.getLast()));
+            }
+            // A second breakpoint on the newest message caches the conversation as it grows: each call
+            // reads back everything cached by the previous one and writes only what it appended.
+            if (!messages.isEmpty()) {
+                markCacheBreakpoint(messages.getLast());
+            }
+        } else if (!system.isEmpty()) {
+            body.put("system", system);
         }
 
-        body.put("messages", conversationMessages.stream().map(this::toMessageMap).toList());
+        body.put("messages", messages);
 
-        if (!request.tools().isEmpty()) {
-            body.put("tools", request.tools().stream().map(this::toToolMap).toList());
+        if (!tools.isEmpty()) {
+            body.put("tools", tools);
         }
         return body;
+    }
+
+    private static Map<String, Object> textBlock(String text) {
+        return Map.of("type", "text", "text", text);
+    }
+
+    /** Returns a copy of {@code block} carrying an ephemeral {@code cache_control} marker. */
+    private static Map<String, Object> withCacheControl(Map<String, Object> block) {
+        Map<String, Object> marked = new LinkedHashMap<>(block);
+        marked.put("cache_control", EPHEMERAL);
+        return marked;
+    }
+
+    /**
+     * Puts a cache breakpoint on the last content block of {@code message}, normalising plain-string
+     * content into a text block first, since {@code cache_control} can only sit on a block. Content is
+     * rebuilt rather than mutated in place: {@link #toMessageMap} assembles blocks with immutable maps.
+     */
+    private static void markCacheBreakpoint(Map<String, Object> message) {
+        Object content = message.get("content");
+        if (content instanceof String text) {
+            message.put("content", List.of(withCacheControl(textBlock(text))));
+        } else if (content instanceof List<?> blocks && !blocks.isEmpty()
+                && blocks.getLast() instanceof Map<?, ?> last) {
+            List<Object> marked = new ArrayList<>(blocks);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> block = (Map<String, Object>) last;
+            marked.set(marked.size() - 1, withCacheControl(block));
+            message.put("content", marked);
+        }
     }
 
     private HttpRequest buildHttpRequest(Map<String, Object> body) {
@@ -261,6 +341,20 @@ public class AnthropicModelExecutor extends ModelExecutor {
         } catch (Exception e) {
             throw new RuntimeException("Failed to serialize Anthropic request", e);
         }
+    }
+
+    /**
+     * Reads a {@code usage} object. The cache counts are absent from the response unless the request
+     * carried {@code cache_control}, so they default to zero. Anthropic reports them alongside
+     * {@code input_tokens} rather than inside it: the three are billed at different rates and only
+     * their sum is the size of the prompt.
+     */
+    private static TokenUsage toTokenUsage(JsonNode usage) {
+        return new TokenUsage(
+                usage.path("input_tokens").asLong(0),
+                usage.path("output_tokens").asLong(0),
+                usage.path("cache_creation_input_tokens").asLong(0),
+                usage.path("cache_read_input_tokens").asLong(0));
     }
 
     private static FinishReason mapStopReason(String stopReason) {
@@ -344,8 +438,7 @@ public class AnthropicModelExecutor extends ModelExecutor {
 
         TokenUsage usage = TokenUsage.ZERO;
         if (root.has("usage") && !root.get("usage").isNull()) {
-            JsonNode u = root.get("usage");
-            usage = new TokenUsage(u.get("input_tokens").asLong(), u.get("output_tokens").asLong());
+            usage = toTokenUsage(root.get("usage"));
         }
 
         FinishReason finishReason = mapStopReason(root.get("stop_reason").asText());

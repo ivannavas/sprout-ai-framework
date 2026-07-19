@@ -76,10 +76,11 @@ class AnthropicModelExecutorTest {
         assertEquals(7, response.usage().outputTokens());
         assertEquals(FinishReason.STOP, response.finishReason());
 
-        // The system message is lifted out and the tool is advertised.
+        // The system message is lifted out and the tool is advertised. With caching on (the default)
+        // the system prompt travels as a block list rather than a bare string.
         JsonNode sent = JSON.readTree(body.get());
         assertEquals("claude-test", sent.path("model").asText());
-        assertEquals("You are helpful.", sent.path("system").asText());
+        assertEquals("You are helpful.", sent.path("system").get(0).path("text").asText());
         assertEquals("lookup", sent.path("tools").get(0).path("name").asText());
     }
 
@@ -266,5 +267,100 @@ class AnthropicModelExecutorTest {
         executor.chat("claude-per-call", new ModelRequest(List.of(Message.user("Hi?")), List.of()));
 
         assertEquals("claude-per-call", JSON.readTree(body.get()).path("model").asText());
+    }
+
+    @Test
+    void placesCacheBreakpointsOnSystemPromptAndNewestMessage() throws Exception {
+        AtomicReference<String> body = new AtomicReference<>();
+        AnthropicModelExecutor executor = executorReturning(
+                "{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\"}", body);
+
+        executor.chat(new ModelRequest(
+                List.of(Message.system("You are helpful."), Message.user("First"), Message.user("Second")),
+                List.of(new ToolDefinition("lookup", "Look it up", "{\"type\":\"object\",\"properties\":{}}"))));
+
+        JsonNode sent = JSON.readTree(body.get());
+        assertEquals("ephemeral",
+                sent.path("system").get(0).path("cache_control").path("type").asText());
+
+        // Only the newest message is a breakpoint: the earlier one is read back from the cache the
+        // previous call wrote, so marking it again would just burn one of the four available.
+        JsonNode messages = sent.path("messages");
+        assertTrue(messages.get(0).path("content").isTextual());
+        assertEquals("ephemeral",
+                messages.get(1).path("content").get(0).path("cache_control").path("type").asText());
+        assertEquals("Second", messages.get(1).path("content").get(0).path("text").asText());
+    }
+
+    @Test
+    void cachesToolSchemasWhenThereIsNoSystemPrompt() throws Exception {
+        AtomicReference<String> body = new AtomicReference<>();
+        AnthropicModelExecutor executor = executorReturning(
+                "{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\"}", body);
+
+        executor.chat(new ModelRequest(
+                List.of(Message.user("Hi")),
+                List.of(new ToolDefinition("lookup", "Look it up", "{\"type\":\"object\",\"properties\":{}}"))));
+
+        // Tools render ahead of the system prompt, so they are only left uncached when nothing follows
+        // them to carry the breakpoint.
+        JsonNode tools = JSON.readTree(body.get()).path("tools");
+        assertEquals("ephemeral", tools.get(0).path("cache_control").path("type").asText());
+    }
+
+    @Test
+    void sendsNoCacheControlWhenCachingIsDisabled() throws Exception {
+        AtomicReference<String> body = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        server.createContext("/v1/messages", exchange -> {
+            body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] response = "{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\"}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        AnthropicModelExecutor executor = new AnthropicModelExecutor("test-key", "claude-test", 1024, 5,
+                "http://localhost:" + server.getAddress().getPort() + "/v1/messages", false);
+
+        executor.chat(new ModelRequest(
+                List.of(Message.system("You are helpful."), Message.user("Hi")), List.of()));
+
+        // Disabled restores the pre-caching shape: a bare system string and no markers anywhere.
+        JsonNode sent = JSON.readTree(body.get());
+        assertEquals("You are helpful.", sent.path("system").asText());
+        assertTrue(!body.get().contains("cache_control"));
+    }
+
+    @Test
+    void parsesCacheTokenCounts() throws Exception {
+        AnthropicModelExecutor executor = executorReturning(
+                "{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\","
+                        + "\"usage\":{\"input_tokens\":10,\"output_tokens\":5,"
+                        + "\"cache_creation_input_tokens\":100,\"cache_read_input_tokens\":900}}",
+                new AtomicReference<>());
+
+        ModelResponse response = executor.chat(new ModelRequest(List.of(Message.user("Hi")), List.of()));
+
+        assertEquals(10, response.usage().inputTokens());
+        assertEquals(100, response.usage().cacheWriteTokens());
+        assertEquals(900, response.usage().cacheReadTokens());
+        // The prompt was 1010 tokens even though only 10 were billed as fresh input.
+        assertEquals(1010, response.usage().totalInputTokens());
+        assertEquals(0.891, response.usage().cacheHitRatio(), 0.001);
+    }
+
+    @Test
+    void defaultsCacheTokenCountsToZeroWhenAbsent() throws Exception {
+        AnthropicModelExecutor executor = executorReturning(
+                "{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\","
+                        + "\"usage\":{\"input_tokens\":10,\"output_tokens\":5}}",
+                new AtomicReference<>());
+
+        ModelResponse response = executor.chat(new ModelRequest(List.of(Message.user("Hi")), List.of()));
+
+        assertEquals(0, response.usage().cacheReadTokens());
+        assertEquals(10, response.usage().totalInputTokens());
     }
 }

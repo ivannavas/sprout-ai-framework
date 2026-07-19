@@ -36,15 +36,18 @@ public class UsageCollector {
 
     private void onModelResponse(ModelResponseEvent event) {
         TokenUsage usage = event.response().usage();
-        double cost = pricing.costOf(event.modelName(), usage.inputTokens(), usage.outputTokens());
+        // Cost comes from the full usage so cached input is billed at its own rate, while the recorded
+        // token count is the whole prompt: with caching on, inputTokens() alone is just the uncached
+        // remainder and would make prompts look like they shrank.
+        double cost = pricing.costOf(event.modelName(), usage);
         store.recordModelCall(new ModelCall(
-                event.modelName(), usage.inputTokens(), usage.outputTokens(), cost, event.occurredAt()));
+                event.modelName(), usage.totalInputTokens(), usage.outputTokens(), cost, event.occurredAt()));
     }
 
     private void onAgentCompleted(AgentCompletedEvent event) {
         AgentResult result = event.result();
         store.recordAgentRun(new AgentRun(event.agentName(), true, result.iterations(),
-                result.totalUsage().inputTokens(), result.totalUsage().outputTokens(), event.occurredAt()));
+                result.totalUsage().totalInputTokens(), result.totalUsage().outputTokens(), event.occurredAt()));
     }
 
     private void onAgentFailed(AgentFailedEvent event) {
