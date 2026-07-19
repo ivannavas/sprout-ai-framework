@@ -6,7 +6,7 @@
 
     <groupId>io.github.ivannavas</groupId>
     <artifactId>sprout-ai-framework</artifactId>
-    <version>1.8.0</version>
+    <version>1.9.0</version>
     <packaging>pom</packaging>
 
     <name>Sprout AI Framework</name>
